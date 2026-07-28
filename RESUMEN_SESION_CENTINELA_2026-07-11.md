@@ -171,3 +171,14 @@ El siguiente paso natural sería:
 ## Nota para retomar en otra sesión
 
 Si retomas desde aquí, el punto exacto de partida es que el pipeline de datos ya existe y funciona. No hace falta volver a construir el proxy ni el ETL. La próxima conversación debería enfocarse en modelado, evaluación y empaquetado de resultados.
+
+---
+
+## Actualización posterior (2026-07-27)
+
+Tras esta sesión se cerraron las siguientes tareas:
+
+- **Fase 3 (Dashboard):** se completó el dashboard Streamlit en `dashboard/app.py` con las dos vistas (Pública y Operador/JAC), mapa con fallback offline, calendario de alertas y simulador interactivo.
+- **Documentación:** se creó un `README.md` completo en la raíz del repositorio.
+- **Seguridad:** se movieron las credenciales hardcodeadas de `scripts/02_pull_historico.py` a variables de entorno (`SODAPY_USERNAME`, `SODAPY_PASSWORD`) usando `python-dotenv`; se creó `.env.example` y se agregó `.env` a `.gitignore`. Se reescribió el historial de Git con `git checkout --orphan` y force-push para eliminar las credenciales expuestas de la historia.
+- **Nota:** las credenciales expuestas deben rotarse en Socrata/datos.gov.co.

@@ -65,12 +65,22 @@ El dashboard queda en dos vistas:
 ## 5) Instrucciones de ejecucion para la sustentacion
 
 1. Activar el entorno virtual del proyecto.
-2. Ejecutar: streamlit run dashboard/app.py
-3. Verificar carga en navegador local (http://localhost:8501).
-4. Para demo offline, apagar WiFi:
+2. Asegurarse de que existe un archivo `.env` en la raíz con las credenciales Socrata (`SODAPY_USERNAME`, `SODAPY_PASSWORD`). Ver `.env.example`.
+3. Ejecutar: streamlit run dashboard/app.py
+4. Verificar carga en navegador local (http://localhost:8501).
+5. Para demo offline, apagar WiFi:
    - El mapa debe caer automaticamente al fallback estatico.
    - El resto del dashboard debe mantenerse operativo.
 
+Nota: el pipeline de descarga IDEAM (`scripts/02_pull_historico.py`) requiere las credenciales en `.env`. El dashboard solo necesita los archivos ya generados en `data/processed/`.
+
 ## 6) Cierre de fase
 
-Se cierra Fase 3 como completada para demo funcional. No se realizan mas cambios de codigo en dashboard/app.py salvo falla critica detectada en smoke test.
+Se cierra Fase 3 como completada para demo funcional.
+
+Actualizaciones posteriores al cierre de esta sesión:
+- Se creó un `README.md` completo en la raíz del repositorio.
+- Se creó `.env.example` y se movieron las credenciales de `scripts/02_pull_historico.py` a variables de entorno (`SODAPY_USERNAME`, `SODAPY_PASSWORD`) usando `python-dotenv`.
+- Se agregó `.env` a `.gitignore` y se reescribió el historial de Git para eliminar las credenciales hardcodeadas.
+
+No se realizan mas cambios de codigo en dashboard/app.py salvo falla critica detectada en smoke test.

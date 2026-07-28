@@ -1,8 +1,8 @@
 # STATUS_REPORT — Auditoría CentineLA
 
-Fecha de auditoría: 2026-07-21  
-Modo: solo lectura (sin modificaciones de archivos).  
-Nota: el directorio **no es un repositorio Git** (`git status` devuelve `fatal: not a git repository`). Las fechas son `mtime` del sistema de archivos.
+Fecha de auditoría: 2026-07-27  
+Modo: auditoría posterior a limpieza de credenciales y reescritura de historial.
+Nota: el directorio **sí es un repositorio Git**. Tras la reescritura de historial, la rama `master` tiene un historial limpio con los archivos actuales; los commits anteriores que contenían credenciales hardcodeadas fueron eliminados localmente y en `origin` mediante force-push. Las credenciales afectadas aún deben considerarse comprometidas y rotarse.
 
 ---
 
@@ -14,10 +14,14 @@ Nota: el directorio **no es un repositorio Git** (`git status` devuelve `fatal: 
   - [simulate/04_scs_cn_proxy.py](simulate/04_scs_cn_proxy.py) — mtime 2026-07-11 11:44:17  
   Las 3 estaciones objetivo están referenciadas: `0027015290` (Pajarito), `0027015310` (Metromedellín), `0027015330` (Olaya Herrera) — sensor 240 canónico, 257 como QA ([simulate/04_scs_cn_proxy.py](simulate/04_scs_cn_proxy.py#L48)).
 
-- ❌ **Filtro de huecos de instrumento NO está codificado con las fechas exactas esperadas**  
+- ✅ **Las fechas de hueco de Metromedellín en `06_etl_features.py` fueron corregidas**
   - El contexto técnico documenta los huecos reales: Metromedellín `2019-02-18 16:00` → `2019-07-26 11:00`; Olaya 240 `marzo-jun 2019` → retoma `2019-08-24` ([CENTINELA_CONTEXTO_TECNICO.md](CENTINELA_CONTEXTO_TECNICO.md#L12)).  
-  - En el código, el único rastro de ventanas de hueco está en [simulate/06_etl_features.py](simulate/06_etl_features.py#L32-L35), pero usa **valores diferentes**: `METROMEDELLIN_GAP_INICIO = 2019-07-01 00:00:00` y `METROMEDELLIN_GAP_FIN = 2020-12-31 23:59:59`.  
-  - No existe filtro explícito con las fechas `2019-02-18` / `2019-07-26` ni con el hueco de Olaya 240. El descarte real se produce por `n_estaciones_disponibles < 2`, no por máscara de fechas.
+  - El código actual usa las fechas correctas en [simulate/06_etl_features.py](simulate/06_etl_features.py#L32-L35):
+    ```python
+    METROMEDELLIN_GAP_INICIO = pd.Timestamp("2019-02-18 16:00:00")
+    METROMEDELLIN_GAP_FIN    = pd.Timestamp("2019-07-26 11:00:00")
+    ```
+  - Estas constantes se usan solo para **diagnóstico** de meses con baja disponibilidad; el filtro real sigue siendo `n_estaciones_disponibles < 2`, como se documenta.
 
 - ✅ **CN compuesto = 81.1**  
   - [simulate/cuenca_la_honda_params.py](simulate/cuenca_la_honda_params.py#L72): `CN = calcular_cn_compuesto()`  
@@ -73,9 +77,10 @@ Nota: el directorio **no es un repositorio Git** (`git status` devuelve `fatal: 
 
 ## 3. Dashboard Streamlit (Fase 3)
 
-- ✅ **Dashboard principal encontrado**  
-  - [dashboard/app.py](dashboard/app.py) — mtime 2026-07-12 20:17:49  
-  - [dashboard/_check_fixes.py](dashboard/_check_fixes.py) — mtime 2026-07-12 20:19:04
+- ✅ **Dashboard principal encontrado y Fase 3 cerrada**  
+  - [dashboard/app.py](dashboard/app.py) — implementa Vista Pública y Vista Operador/JAC.  
+  - [dashboard/_check_fixes.py](dashboard/_check_fixes.py) — verificaciones de fixes y simulador.
+  - Se creó un `README.md` completo en la raíz del repositorio con la documentación técnica principal.
 
 - ✅ **Existen las dos vistas**  
   - Vista Pública: [dashboard/app.py](dashboard/app.py#L407) — semáforo, card probabilidad, 3 cards acumulado lluvia, mapa Folium con fallback offline, calendario 90 días.  
@@ -144,17 +149,29 @@ Nota: el directorio **no es un repositorio Git** (`git status` devuelve `fatal: 
   - [simulate/cuenca_la_honda_params.py](simulate/cuenca_la_honda_params.py#L60): nota sobre reparto de área y CN como supuestos sin fuente oficial.
   - [centinela-demo/CentineLA_Sesion_Fase3_Export.md](centinela-demo/CentineLA_Sesion_Fase3_Export.md#L58): "Pulido estético adicional del mapa y responsividad en pantallas angostas — no verificado a fondo".
 
-- ⚠️ **Dependencias declaradas vs realmente importadas**
-  - [requirements.txt](requirements.txt) raíz declara: `pandas`, `sodapy`, `scikit-learn`, `joblib`, `streamlit`.
-  - **Faltan en `requirements.txt` raíz** pero son importados en producción:  
-    - `numpy` (importado en 6 scripts + dashboard)  
-    - `matplotlib` (importado en `simulate/05_validar_proxy_eventos.py` y `dashboard/app.py`)  
-    - `plotly` (importado en `dashboard/app.py`)  
-    - `folium` (importado en `dashboard/app.py`)  
-    - `streamlit-folium` (importado en `dashboard/app.py`)  
-    - `requests` (importado en `dashboard/app.py` dentro de `check_red()`)
-  - [dashboard/requirements.txt](dashboard/requirements.txt) sí incluye las dependencias del dashboard con versiones pinnadas (incluye `numpy`, `matplotlib`, `plotly`, `folium`, `streamlit-folium`, `requests`).
-  - **Mismatch**: hay dos `requirements.txt` y el archivo raíz es insuficiente para ejecutar el pipeline completo o el dashboard. Todo está instalado en el `venv`, pero la declaración raíz es incompleta.
+- ✅ **Dependencias declaradas vs realmente importadas**
+  - [requirements.txt](requirements.txt) raíz ahora declara: `pandas`, `sodapy`, `scikit-learn`, `joblib`, `streamlit`, `numpy`, `matplotlib`, `plotly`, `folium`, `streamlit-folium`, `requests`, `python-dotenv`.
+  - El archivo raíz es suficiente para ejecutar tanto el pipeline completo como el dashboard.
+  - [dashboard/requirements.txt](dashboard/requirements.txt) sigue disponible con versiones pinnadas para reproducibilidad exacta del dashboard.
+
+---
+
+## 7. Seguridad y credenciales
+
+- ✅ **Credenciales Socrata movidas a variables de entorno**
+  - `scripts/02_pull_historico.py` ya no contiene `username`/`password` hardcodeados.
+  - Lee `SODAPY_USERNAME` y `SODAPY_PASSWORD` desde el entorno mediante `python-dotenv`.
+  - Se creó `.env.example` con los nombres de variable (sin valores).
+  - Se agregó `.env` a `.gitignore`.
+  - Se agregó `python-dotenv` a `requirements.txt`.
+
+- ✅ **Historial de Git reescrito**
+  - Se ejecutó `git checkout --orphan clean-main`, `git gc --prune=now --aggressive` y `git push -f origin master` para eliminar los commits que contenían las credenciales.
+  - Commit actual del historial limpio: `CentineLA: historial limpio`.
+
+- ⚠️ **Rotación de credenciales aún pendiente**
+  - Las credenciales estuvieron expuestas en GitHub; aunque ya no están en el historial actual, deben rotarse en Socrata/datos.gov.co.
+  - El archivo `.env` (no trackeado) debe completarse localmente con las nuevas credenciales.
 
 ---
 
@@ -167,4 +184,5 @@ Nota: el directorio **no es un repositorio Git** (`git status` devuelve `fatal: 
 | Fase 3 Dashboard | ✅ Dos vistas y fallback offline funcionan. ⚠️ Preset lluvia fuerte da 96.5% (no ~77%). ❌ `inject_design_system()` no existe. |
 | Documento/video | ❌ No iniciados/encontrados. |
 | PQRSD | ❌ No hay copia del derecho de petición ni respuesta. |
-| Repo general | ❌ No es Git. ⚠️ `requirements.txt` raíz incompleto. |
+| Seguridad | ✅ Credenciales movidas a `.env`. ✅ Historial reescrito. ⚠️ Credenciales expuestas deben rotarse. |
+| Repo general | ✅ Es Git (historial limpio en `master`). ✅ `requirements.txt` raíz completo. |

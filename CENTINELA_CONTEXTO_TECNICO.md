@@ -21,7 +21,7 @@ Fase 2 CERRADA. Scripts implementados y ejecutados:
 - `simulate/04_scs_cn_proxy.py` — genera proxy SCS-CN horario (P_basin→Q_scs_proxy); guarda `data/processed/proxy_q_la_honda.csv`.
 - `simulate/05_validar_proxy_eventos.py` — validación exploratoria del proxy contra eventos conocidos; modo exploratorio si no hay fechas externas (evita inferencia circular).
 - `simulate/06_etl_features.py` — ETL de features/targets con lags, rolling sums, Q_actual/Q_lags, diagnóstico pre-filtro mensual y split cronológico preservado entre corridas.
-- `simulate/07_entrenar_modelo_6h.py` — 3 enfoques de RF regresor (target absoluto, delta, weighted) + comparación contra baseline de persistencia; joblib dump de los 3 modelos.
+- `simulate/07_entrenar_modelo_6h.py` — 3 enfoques de RF regresor (target absoluto, delta, weighted) + comparación contra baseline de persistencia; joblib dump de los 3 modelos. El clasificador no está en este script; está en `simulate/08_clasificador_6h.py`.
 - `simulate/08_clasificador_6h.py` — clasificador binario RF con barrido de umbrales 0.5→0.1 sobre probabilidades y recomendación operativa.
 - `simulate/09_gateway_simulado.py` — simula gateway RPi4 fila-a-fila, valida features streaming vs batch (epsilon 1e-6), genera `log_gateway_simulado.csv`.
 - `data/processed/filas_baja_calidad.csv` — filas con n_estaciones<2, conservadas para auditoría QA.
@@ -104,12 +104,13 @@ CUENCA ALTA                    TRAMO MEDIO                  TRAMO BAJO
 | Hardware nodos | ESP32 + SX1278 (LoRa) |
 | Comunicación | LoRa 915 MHz |
 | Visión computacional | Python + OpenCV |
-| ML predictivo | Python + scikit-learn (RandomForestRegressor) |
+| ML predictivo | Python + scikit-learn (RandomForestRegressor en experimentos; RandomForestClassifier en producción) |
 | Broker MQTT | Mosquitto |
-| Backend dashboard | Flask / Streamlit (demo) |
+| Backend dashboard | Streamlit (dashboard/app.py) |
 | Base de datos | SQLite (local) + PostgreSQL (cloud, futuro) |
 | Alertas | WhatsApp Business API / Telegram Bot |
 | Datos externos | API Socrata `datos.gov.co` (IDEAM) |
+| Gestión de secretos | python-dotenv + `.env` (no trackeado) |
 
 ## Fuentes de datos IDEAM (Socrata, `www.datos.gov.co`, librería `sodapy`)
 
@@ -121,55 +122,56 @@ CUENCA ALTA                    TRAMO MEDIO                  TRAMO BAJO
 
 Schema confirmado de `hp9r-jxuu` (columnas en minúscula vía sodapy): `codigo`, `nombre`, `categoria`, `tecnologia`, `estado`, `departamento`, `municipio`, `ubicacion` (o `latitud`/`longitud` planos), `altitud`, `fecha_instalacion`, `fecha_suspension`, `area_operativa`, `corriente`, `area_hidrografica`, `zona_hidrografica`, `subzona_hidrografica`, `entidad`.
 
-Sin `app_token`: rate limit estricto (warning en cada corrida). Si se vuelve un problema, sacar token gratis en `dev.socrata.com` y pasarlo al cliente `Socrata(..., app_token=...)`.
+Las credenciales Socrata se leen desde variables de entorno (`SODAPY_USERNAME`, `SODAPY_PASSWORD`) mediante `python-dotenv`. Ver `.env.example` en la raíz. Opcionalmente se puede usar `SODAPY_APP_TOKEN` para evitar rate limits estrictos; sacar token gratis en `dev.socrata.com` y pasarlo al cliente `Socrata(..., app_token=...)`. El archivo `.env` está en `.gitignore` y nunca debe subirse.
 
 ## Prototipo IoT ya operativo (base de código para nodos ESP32 de campo)
 
 Estación calidad de aire v13, Wokwi: ESP32 + DHT22 (temp/humedad) + MQ-135 (CO2) + HC-SR04 (presencia) + OLED SSD1306 + LED RGB. Publica a Ubidots vía MQTT cada 90s. Servidor web local para config remota.
 
 **Issues pendientes (aplican también al escalar a nodos CentineLA — mismo código base):**
-- Credenciales WiFi expuestas en sketch público de Wokwi — **Alta**, rotar/quitar link antes de reusar
+- El sketch Wokwi no está versionado en este repositorio, por lo que sus credenciales WiFi expuestas no afectan directamente el repo. Si se reincorpora, debe moverse a `secrets.h` / `.env` y agregarse al `.gitignore`.
 - `WiFiMulti`: agota 10 intentos → **offline permanente**, requiere reset manual — endurecer antes de llevar a campo (nodo de alerta no puede quedar mudo sin supervisión)
 - Umbral `TEMP_CALOR = 28.0°C` dispara falso rojo en clima normal Medellín (confirmado con lectura real 28.30°C) — subir a 30-32°C o agregar histéresis
 - Token Ubidots placeholder, config web no persiste a EEPROM, device label "prueba" — cosméticos, baja prioridad
+- Las credenciales Socrata del script Python ya fueron movidas a `.env` y el historial de Git fue reescrito para eliminarlas.
 
-## Estructura del repo (`centinela-demo/`)
+## Estructura del repo (`CentineLA/`)
 
 ```
-centinela-demo/
+CentineLA/
+  .env.example                   # nombres de variables de entorno, sin valores
+  .gitignore                     # excluye .env, venv, datos crudos/procesados y modelos
+  README.md                      # documentación principal del proyecto
+  requirements.txt               # pandas, sodapy, scikit-learn, joblib, streamlit, numpy, matplotlib, plotly, folium, streamlit-folium, requests, python-dotenv
   scripts/
     01_buscar_estaciones.py      # filtra catálogo IDEAM por Valle de Aburrá, rankea por distancia a La Honda
-    02_pull_historico.py         # pull histórico por estación (paginación + bisección recursiva + dedup)
+    02_pull_historico.py         # pull histórico por estación (paginación + bisección recursiva + dedup); lee credenciales de .env
   data/
-    raw/
-      historico_0027015290.csv   # Pajarito — 159k filas, 2016-12-31 a 2020-03-28
-      historico_0027015310.csv   # Metromedellín — 229k filas, 2016-12-31 a 2026-07-09
-      historico_0027015330.csv   # Olaya Herrera — 918k filas, 2016-12-31 a 2026-07-09
-      estaciones_candidatas.csv
-    processed/
-      proxy_q_la_honda.csv       # proxy SCS-CN horario
-      filas_baja_calidad.csv     # filas con n_estaciones<2 (QA)
-      dataset_6h.csv             # 43068 filas, 18 features, split cronológico
-      dataset_12h.csv            # 42693 filas
-      dataset_24h.csv            # 42200 filas
-      proxy_q_la_honda_eventos.png
-      log_gateway_simulado.csv   # 43865 filas, log inferencia streaming
+    raw/                         # NO trackeado: historico_*.csv, estaciones_candidatas.csv
+    processed/                   # NO trackeado excepto .png: proxy, datasets, log_gateway
   simulate/
     cuenca_la_honda_params.py    # área/longitud/tramos/CN (dato-duro vs supuesto marcado)
     04_scs_cn_proxy.py           # proxy SCS-CN horario
     05_validar_proxy_eventos.py  # validación exploratoria sin inferir ground truth
     06_etl_features.py           # ETL features + Q_actual/Q_lags + split preservado
-    07_entrenar_modelo_6h.py     # 3 enfoques RF regresor + RF clasificador; joblib dump
+    07_entrenar_modelo_6h.py     # 3 enfoques RF regresor; joblib dump
     08_clasificador_6h.py        # clasificador binario + barrido de umbrales
     09_gateway_simulado.py       # gateway streaming con validación batch vs stream
-    models/
-      rf_6h.joblib               # RF regresor target absoluto (~62 MB)
-      rf_6h_delta.joblib         # RF regresor target delta (~74 MB)
-      rf_6h_weighted.joblib      # RF regresor con sample_weight (~71 MB)
-      clf_6h.joblib              # RF clasificador binario — modelo en producción (~42 MB)
-  dashboard/                     # Streamlit — PENDIENTE (Fase 3)
-  requirements.txt               # pandas, sodapy, scikit-learn, joblib, streamlit
+    models/                      # NO trackeado: rf_6h*.joblib, clf_6h.joblib
+  dashboard/
+    app.py                       # Streamlit — Fase 3 CERRADA
+    _check_fixes.py              # verificaciones del dashboard
+    requirements.txt             # requirements pinnados del dashboard
+  centinela-demo/
+    CentineLA_Sesion_Fase3_Export.md  # resumen del cierre de Fase 3
 ```
+
+## Seguridad y gestión de secretos
+
+- Las credenciales de Socrata (`SODAPY_USERNAME`, `SODAPY_PASSWORD`) se leen desde un archivo `.env` mediante `python-dotenv`. Ver `.env.example`.
+- `.env` está en `.gitignore` y **nunca** debe subirse al repositorio.
+- El historial de Git fue reescrito con `git checkout --orphan` + force-push para eliminar las credenciales hardcodeadas que existían en versiones anteriores de `scripts/02_pull_historico.py`. Aun así, las credenciales expuestas deben considerarse comprometidas y rotarse.
+- Para nodos ESP32/Wokwi futuros, usar `secrets.h` o equivalente y agregarlo a `.gitignore`.
 
 ## Convenciones de código en este proyecto
 
@@ -188,7 +190,7 @@ centinela-demo/
 3. **[CERRADO]** Proxy SCS-CN → `proxy_q_la_honda.csv`
 4. **[CERRADO]** Modelado: 3 enfoques RF regresor + clasificador RF con barrido de umbrales
 5. **[CERRADO]** Gateway simulado en modo streaming con validación batch vs stream
-6. **[EN CURSO — Fase 3]** Dashboard Streamlit consumiendo `log_gateway_simulado.csv` + `clf_6h.joblib`
+6. **[CERRADO — Fase 3]** Dashboard Streamlit consumiendo `log_gateway_simulado.csv` + `clf_6h.joblib`. Ver `dashboard/app.py`.
 7. **[PENDIENTE CRÍTICO]** Derecho de petición formal a `atencionusuario@metropol.gov.co` — solo se envió aviso informal a `contacto@siata.gov.co`. Sin respuesta no hay fechas reales de eventos para validación honesta.
 8. **[PENDIENTE FINAL]** Documento de 5pp + video entrega
 
