@@ -884,7 +884,52 @@ streamlit run dashboard/app.py
 
 ### 8.3 Variables de entorno
 
-No hay variables de entorno obligatorias. El script `02_pull_historico.py` tiene credenciales Socrata embebidas en el código; no se usan variables de entorno para ellas.
+El proyecto usa un archivo `.env` en la raíz del repositorio (no trackeado por Git). Hay un archivo de ejemplo trackeado:
+
+```bash
+cp .env.example .env
+```
+
+En Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Edita `.env` y completa al menos estas variables antes de ejecutar `02_pull_historico.py`:
+
+```text
+SODAPY_USERNAME=<tu-usuario-de-socrata>
+SODAPY_PASSWORD=<tu-contraseña-de-socrata>
+```
+
+**Obligatorias para Fase 1:**
+
+| Variable | Script que la usa | Descripción |
+|----------|-------------------|-------------|
+| `SODAPY_USERNAME` | `scripts/02_pull_historico.py` | Usuario de la cuenta Socrata en datos.gov.co |
+| `SODAPY_PASSWORD` | `scripts/02_pull_historico.py` | Contraseña de la cuenta Socrata |
+
+**Opcionales:**
+
+| Variable | Script que la usa | Descripción |
+|----------|-------------------|-------------|
+| `SODAPY_APP_TOKEN` | `scripts/02_pull_historico.py` | Token opcional de Socrata para evitar rate limits estrictos |
+| `WIFI_SSID` | Nodos IoT (futuro) | Red WiFi del prototipo ESP32 |
+| `WIFI_PASSWORD` | Nodos IoT (futuro) | Contraseña de red WiFi del prototipo |
+| `UBIDOTS_TOKEN` | Nodos IoT (futuro) | Token de Ubidots para publicación MQTT |
+
+Si alguna variable obligatoria falta, `02_pull_historico.py` lanza:
+
+```text
+ValueError: SODAPY_USERNAME y SODAPY_PASSWORD deben estar definidos en el entorno. Copia .env.example a .env y completa los valores.
+```
+
+### 8.4 Seguridad y rotación de credenciales
+
+- **Nunca subas `.env` a Git.** Ya está incluido en `.gitignore`.
+- Si sospechas que las credenciales Socrata se expusieron (por ejemplo, en un commit anterior), rótalas desde el panel de Socrata / datos.gov.co y actualiza solo tu `.env` local.
+- Si trabajas en equipo, comparte los valores por un canal seguro (gestor de contraseñas, variables de CI/CD), nunca por el repositorio.
 
 ---
 
