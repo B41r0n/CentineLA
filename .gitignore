@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+venv/
+venv_test/
+.venv/
+.env
+data/raw/*.csv
+simulate/models/*.joblib
+data/processed/*.csv
