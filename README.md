@@ -738,7 +738,7 @@ FEATURE_COLS = [
 
 ANCLAS = [
     {"nombre": "Cuenca Alta (Parque Arví)",      "lat": 6.2804, "lon": -75.5027},
-    {"nombre": "Tramo Medio (Jardín Botánico)",  "lat": 6.2694, "lon": -75.5648},
+    {"nombre": "Tramo Medio (La Honda)",  "lat": 6.2694, "lon": -75.5648},
     {"nombre": "Tramo Bajo (Moravia / Montecarlo)", "lat": 6.2781, "lon": -75.5670},
 ]
 ```
