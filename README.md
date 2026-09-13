@@ -112,9 +112,6 @@ CentineLA/
 │   ├── 08_clasificador_6h.py               # RandomForestClassifier binario (modelo en producción)
 │   ├── 09_gateway_simulado.py              # Gateway simulado en modo streaming
 │   └── models/                             # (NO trackeado)
-│       ├── rf_6h.joblib
-│       ├── rf_6h_delta.joblib
-│       ├── rf_6h_weighted.joblib
 │       └── clf_6h.joblib
 │
 └── dashboard/
@@ -526,11 +523,7 @@ ADVERTENCIA EXPLICITA: RF NO supera al baseline de persistencia en el subset de 
 
 **Archivos generados (NO trackeados):**
 
-```text
-simulate/models/rf_6h.joblib         # 61 725 KB
-simulate/models/rf_6h_delta.joblib   # 74 161 KB
-simulate/models/rf_6h_weighted.joblib  # 71 047 KB
-```
+Los tres regresores se guardaban como `rf_6h.joblib` (~61 725 KB), `rf_6h_delta.joblib` (~74 161 KB) y `rf_6h_weighted.joblib` (~71 047 KB). **Ya no existen en disco**: fueron eliminados por limpieza en el commit `4b747e3`; solo se conserva `clf_6h.joblib` (el modelo en producción). Si se vuelven a necesitar, `simulate/07_entrenar_modelo_6h.py` los regenera.
 
 ---
 
@@ -952,20 +945,25 @@ Solo se incluyen limitaciones confirmadas por el código o los datos:
 
 ### Sí es un repositorio Git
 
-A diferencia de lo que afirma `STATUS_REPORT.md` (auditoría 2026-07-21), el directorio **sí es un repositorio Git** en la fecha actual:
+A diferencia de lo que afirma `STATUS_REPORT.md` (auditoría 2026-07-21), el directorio **sí es un repositorio Git** en la fecha actual. El historial fue **reescrito** (`e8d53c4` “CentineLA: historial limpio”) para eliminar credenciales Socrata que estuvieron expuestas en commits antiguos, por lo que los commits anteriores a la reescritura **ya no existen**. Historial actual completo:
 
 ```text
-$ git log --oneline -5
-3f3e403 Final
-dddfc2b chore: init repo tracking; fix Metromedellín gap dates (cosmetic); complete root requirements.txt
+$ git log --oneline
+4b747e3 chore: limpia modelos huérfanos rf_6h y directorio basura {data/
+a28613e fix: corrige etiqueta "Tramo Medio" (Jardin Botanico -> La Honda) en dashboard y README, coincide con TRAMOS real
+5a4324b docs: update outdated markdown files to reflect current repo state
+629e887 docs: document .env setup and credential rotation
+e8d53c4 CentineLA: historial limpio
 ```
 
 ### Archivos trackeados
 
 ```text
+.env.example
 .gitignore
 .vscode/settings.json
 CENTINELA_CONTEXTO_TECNICO.md
+README.md
 RESUMEN_SESION_CENTINELA_2026-07-11.md
 STATUS_REPORT.md
 centinela-demo/CentineLA_Sesion_Fase3_Export.md
@@ -1020,7 +1018,7 @@ Se listan diferencias entre el código real y documentación o comentarios previ
 
 1. **`STATUS_REPORT.md` dice que no es repositorio Git, pero sí lo es.**
    * `STATUS_REPORT.md` línea 5: “el directorio no es un repositorio Git (`git status` devuelve `fatal: not a git repository`)”.
-   * Realidad actual: `git log` muestra dos commits (`dddfc2b`, `3f3e403`) y `git ls-files` devuelve archivos trackeados.
+   * Realidad actual: `git log` muestra el historial reescrito a partir de `e8d53c4` (“CentineLA: historial limpio”) y `git ls-files` devuelve los archivos trackeados actuales.
 
 2. **`STATUS_REPORT.md` reporta fechas erróneas de hueco de Metromedellín en `06_etl_features.py`, pero el código actual está corregido.**
    * `STATUS_REPORT.md` línea 19: afirma que `METROMEDELLIN_GAP_INICIO = 2019-07-01 00:00:00` y `METROMEDELLIN_GAP_FIN = 2020-12-31 23:59:59`.
@@ -1031,12 +1029,12 @@ METROMEDELLIN_GAP_INICIO = pd.Timestamp("2019-02-18 16:00:00")
 METROMEDELLIN_GAP_FIN    = pd.Timestamp("2019-07-26 11:00:00")
 ```
 
-   * Esto coincide con el commit `dddfc2b` (“fix Metromedellín gap dates (cosmetic)”).
+   * La corrección quedó absorbida en la reescritura de historial (`e8d53c4`); los commits que la introdujeron (`dddfc2b` y anteriores) ya no existen en el historial actual.
 
 3. **`STATUS_REPORT.md` dice que `requirements.txt` raíz es incompleto, pero el archivo actual está completo.**
    * `STATUS_REPORT.md` líneas 147-157: reporta que faltaban `numpy`, `matplotlib`, `plotly`, `folium`, `streamlit-folium` y `requests`.
    * `requirements.txt` actual incluye todas esas dependencias.
-   * Esto también coincide con el commit `dddfc2b` (“complete root requirements.txt”).
+   * El `requirements.txt` raíz ya está completo en el historial actual; la corrección de dependencias también quedó absorbida en la reescritura `e8d53c4`.
 
 4. **`CENTINELA_CONTEXTO_TECNICO.md` ubica la estructura del repo bajo `centinela-demo/`, pero el repo real usa `CentineLA/` como raíz.**
    * La sección “Estructura del repo (`centinela-demo/`)” muestra carpetas `centinela-demo/scripts/`, `centinela-demo/data/`, etc.
