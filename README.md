@@ -101,9 +101,7 @@ CentineLA/
 │       ├── dataset_6h.csv                  # Dataset de entrenamiento (horizonte 6 h)
 │       ├── dataset_12h.csv                 # Dataset de entrenamiento (horizonte 12 h)
 │       ├── dataset_24h.csv                 # Dataset de entrenamiento (horizonte 24 h)
-│       ├── log_gateway_simulado.csv        # Resultado de la simulación del gateway
-│       ├── mapa_v4_normal.png              # Mapa estático NORMAL del dashboard
-│       └── mapa_v4_alerta.png              # Mapa estático ALERTA del dashboard
+│       └── log_gateway_simulado.csv        # Resultado de la simulación del gateway
 │
 ├── simulate/
 │   ├── cuenca_la_honda_params.py           # Área, longitud, tramos, CN compuesto (dato-duro vs supuesto)
@@ -974,8 +972,6 @@ centinela-demo/CentineLA_Sesion_Fase3_Export.md
 dashboard/_check_fixes.py
 dashboard/app.py
 dashboard/requirements.txt
-data/processed/mapa_v4_alerta.png
-data/processed/mapa_v4_normal.png
 data/processed/proxy_q_la_honda_eventos.png
 requirements.txt
 scripts/01_buscar_estaciones.py

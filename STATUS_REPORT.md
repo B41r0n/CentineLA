@@ -116,7 +116,6 @@ Nota: el directorio **sí es un repositorio Git**. Tras la reescritura de histor
 
 - ❌ **Render conceptual (Gemini/poste instalado) no encontrado**  
   - No hay archivos con `*render*`, `*.blend`, `*.glb`, `*.gltf`, `*.fbx`, ni imágenes de render conceptual.  
-  - Las únicas imágenes generadas son `data/processed/mapa_v4_normal.png` y `data/processed/mapa_v4_alerta.png` (mapas del dashboard, no renders de poste/sensores).  
   - No es posible verificar si las 3 correcciones (sensores ultrasónico/turbidez altos, cámara apuntando a la mira, altavoz fuera del BOM) fueron aplicadas.
 
 ---
