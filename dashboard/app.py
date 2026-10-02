@@ -775,6 +775,7 @@ def main() -> None:
         ["Vista Pública", "Vista Operador (JAC)"],
     )
     st.sidebar.caption(f"Filas en log: {len(log):,}  |  Último estado: {log.iloc[-1]['estado']}")
+    st.sidebar.caption("CentineLA — Bairon Nicolas Calle Rivera · ITM · Territorio INN 2026")
 
     if vista == "Vista Pública":
         vista_publica(log, proxy)

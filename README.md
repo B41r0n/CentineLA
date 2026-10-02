@@ -4,6 +4,11 @@ Sistema de alerta temprana de crecientes súbitas para la **Quebrada La Honda**,
 
 > Repositorio real ubicado en: `C:\Users\Nico\Desktop\CentineLA`
 
+## Autor
+
+Bairon Nicolas Calle Rivera — estudiante de Tecnología en Sistemas, ITM (Instituto Tecnológico Metropolitano), Medellín.
+Proyecto individual — Territorio INN 2026, Reto #7.
+
 ---
 
 ## 1. Qué es y por qué existe
