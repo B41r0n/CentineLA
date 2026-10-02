@@ -22,10 +22,20 @@ LOG_PATH = BASE_DIR / "data" / "processed" / "log_gateway_simulado.csv"
 PROXY_PATH = BASE_DIR / "data" / "processed" / "proxy_q_la_honda.csv"
 MODEL_PATH = BASE_DIR / "simulate" / "models" / "clf_6h.joblib"
 
-# ── métricas operativas (calculadas en 08_clasificador_6h.py, umbral 0.20) ──
+# ── métricas operativas (calculadas en 08_clasificador_6h.py) ──
 RECALL_OPERATIVO = 0.743
 PRECISION_OPERATIVA = 0.400
-UMBRAL_ALERTA = 0.20
+UMBRAL_PRECAUCION = 0.30
+UMBRAL_ALERTA = 0.70
+
+
+def clasificar_estado(proba: float) -> str:
+    """Sistema ternario de alertas."""
+    if proba >= UMBRAL_ALERTA:
+        return "ALERTA"
+    elif proba >= UMBRAL_PRECAUCION:
+        return "PRECAUCIÓN"
+    return "NORMAL"
 
 # ── anchors geográficos de la quebrada (dato-duro AMVA + referencia visual) ─
 ANCLAS = [
@@ -107,10 +117,12 @@ def check_red(timeout: int = 3) -> bool:
 
 
 def semaforo_html(estado: str) -> str:
-    if estado == "ALERTA_6H":
-        bg, emoji, texto = "#c0392b", "🔴", "ALERTA — PRÓXIMAS 6 HORAS"
+    if estado == "ALERTA":
+        bg, emoji, texto = "#e74c3c", "🔴", "ALERTA — PRÓXIMAS 6 HORAS"
+    elif estado == "PRECAUCIÓN":
+        bg, emoji, texto = "#f39c12", "🟡", "PRECAUCIÓN — CONDICIONES A REVISAR"
     else:
-        bg, emoji, texto = "#27ae60", "🟢", "NORMAL"
+        bg, emoji, texto = "#2ecc71", "🟢", "NORMAL"
     return f"""
     <div style="
         background-color:{bg};
@@ -131,7 +143,10 @@ def semaforo_html(estado: str) -> str:
 @st.cache_data(show_spinner=False)
 def cargar_log() -> pd.DataFrame:
     df = pd.read_csv(LOG_PATH, parse_dates=["timestamp"])
-    return df.sort_values("timestamp").reset_index(drop=True)
+    df = df.sort_values("timestamp").reset_index(drop=True)
+    # Normalizar a sistema ternario (el log histórico puede venir binario)
+    df["estado"] = df["proba_alerta"].apply(clasificar_estado)
+    return df
 
 
 @st.cache_data(show_spinner=False)
@@ -167,7 +182,12 @@ def _mapa_folium(anclas: list[dict], nodos: list[dict], estado: str) -> None:
     coords = [[a["lat"], a["lon"]] for a in anclas]
     folium.PolyLine(coords, color="#1f77b4", weight=3, opacity=0.7).add_to(m)
 
-    color_nodo = "red" if estado == "ALERTA_6H" else "green"
+    if estado == "ALERTA":
+        color_nodo = "red"
+    elif estado == "PRECAUCIÓN":
+        color_nodo = "orange"
+    else:
+        color_nodo = "green"
     for n in nodos:
         folium.CircleMarker(
             location=[n["lat"], n["lon"]],
@@ -196,7 +216,12 @@ def _mapa_estatico(anclas: list[dict], nodos: list[dict], estado: str) -> None:
     lons_linea = [a["lon"] for a in anclas]
     lats_nodos = [n["lat"] for n in nodos]
     lons_nodos = [n["lon"] for n in nodos]
-    color = "#c0392b" if estado == "ALERTA_6H" else "#27ae60"
+    if estado == "ALERTA":
+        color = "#e74c3c"
+    elif estado == "PRECAUCIÓN":
+        color = "#f39c12"
+    else:
+        color = "#2ecc71"
 
     fig, ax = plt.subplots(figsize=(9, 6))
 
@@ -305,18 +330,20 @@ def _tarjeta_html(icono: str, label: str, valor: str, unidad: str = "") -> str:
 
 
 def _color_proba(proba: float) -> str:
-    if proba > 0.40:
-        return "#c0392b"
     if proba >= UMBRAL_ALERTA:
-        return "#e67e22"
-    return "#27ae60"
+        return "#e74c3c"
+    if proba >= UMBRAL_PRECAUCION:
+        return "#f39c12"
+    return "#2ecc71"
 
 
 def _estado_semaforo_html(estado: str, proba: float) -> str:
-    if estado == "ALERTA_6H":
-        bg, emoji, texto = "#c0392b", "🔴", "ALERTA — PRÓXIMAS 6 HORAS"
+    if estado == "ALERTA":
+        bg, emoji, texto = "#e74c3c", "🔴", "ALERTA — PRÓXIMAS 6 HORAS"
+    elif estado == "PRECAUCIÓN":
+        bg, emoji, texto = "#f39c12", "🟡", "PRECAUCIÓN — CONDICIONES A REVISAR"
     else:
-        bg, emoji, texto = "#27ae60", "🟢", "NORMAL"
+        bg, emoji, texto = "#2ecc71", "🟢", "NORMAL"
     color_p = _color_proba(proba)
     return f"""
     <div style="display:grid;grid-template-columns:60% 38%;gap:2%;margin-bottom:8px">
@@ -330,7 +357,7 @@ def _estado_semaforo_html(estado: str, proba: float) -> str:
                   flex-direction:column;justify-content:center;align-items:center">
         <div class="metric-label">PROBABILIDAD</div>
         <div class="metric-value" style="color:{color_p}">{proba:.1%}</div>
-        <div style="font-size:11px;color:#888">umbral operativo: {UMBRAL_ALERTA}</div>
+        <div style="font-size:11px;color:#888">umbrales: PRECAUCIÓN ≥{UMBRAL_PRECAUCION} | ALERTA ≥{UMBRAL_ALERTA}</div>
       </div>
     </div>
     """
@@ -341,14 +368,19 @@ def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
     inicio = ultima_fecha - pd.Timedelta(days=n_dias - 1)
     rango = pd.date_range(inicio, ultima_fecha, freq="D")
 
-    dias_alerta = set(
-        log[log["estado"] == "ALERTA_6H"]["timestamp"].dt.date.unique()
+    # Estado máximo por día: 0=NORMAL, 1=PRECAUCIÓN, 2=ALERTA
+    estado_map = {"NORMAL": 0, "PRECAUCIÓN": 1, "ALERTA": 2}
+    colores = {0: "#2ecc71", 1: "#f39c12", 2: "#e74c3c"}
+    dia_estado = (
+        log.groupby(log["timestamp"].dt.date)["estado"]
+        .apply(lambda s: max((estado_map.get(e, 0) for e in s), default=0))
     )
 
     celdas = []
     for dia in rango:
         d = dia.date()
-        color = "#c0392b" if d in dias_alerta else "#27ae60"
+        nivel = int(dia_estado.get(d, 0))
+        color = colores[nivel]
         celda = (
             '<div title="' + str(d) + '" style="background:' + color
             + ';border-radius:2px;aspect-ratio:1;min-height:14px"></div>'
@@ -363,15 +395,20 @@ def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
     )
     cuadro_n = (
         '<span style="display:inline-block;width:12px;height:12px;'
-        'background:#27ae60;border-radius:2px;vertical-align:middle"></span>'
+        'background:#2ecc71;border-radius:2px;vertical-align:middle"></span>'
+    )
+    cuadro_p = (
+        '<span style="display:inline-block;width:12px;height:12px;'
+        'background:#f39c12;border-radius:2px;vertical-align:middle"></span>'
     )
     cuadro_a = (
         '<span style="display:inline-block;width:12px;height:12px;'
-        'background:#c0392b;border-radius:2px;vertical-align:middle"></span>'
+        'background:#e74c3c;border-radius:2px;vertical-align:middle"></span>'
     )
     leyenda = (
         '<div style="display:flex;gap:16px;font-size:12px;color:#555">'
         + cuadro_n + " Normal&nbsp;&nbsp;"
+        + cuadro_p + " Precaución&nbsp;&nbsp;"
         + cuadro_a + " Alerta"
         + "</div>"
     )
@@ -449,8 +486,8 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
         unsafe_allow_html=True,
     )
     st.caption(
-        "Cada cuadro = un día. Rojo = al menos una hora ALERTA_6H ese día. "
-        "Verde = ninguna alerta ese día."
+        "Cada cuadro = un día. Verde = NORMAL, amarillo = al menos una hora PRECAUCIÓN, "
+        "rojo = al menos una hora ALERTA."
     )
 
 
@@ -485,7 +522,8 @@ def _grafico_historico(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
         (log["timestamp"].dt.date >= fecha_ini)
         & (log["timestamp"].dt.date <= fecha_fin)
     )
-    alertas = log[mask_log & (log["estado"] == "ALERTA_6H")].copy()
+    precauciones = log[mask_log & (log["estado"] == "PRECAUCIÓN")].copy()
+    alertas = log[mask_log & (log["estado"] == "ALERTA")].copy()
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -496,17 +534,23 @@ def _grafico_historico(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
         x=proxy_rango["timestamp"], y=proxy_rango["Q_scs_proxy"],
         name="Q_scs_proxy (mm)", line=dict(color="#8e44ad", width=1), yaxis="y2",
     ))
+    if not precauciones.empty:
+        fig.add_trace(go.Scatter(
+            x=precauciones["timestamp"], y=precauciones["proba_alerta"],
+            mode="markers", name="PRECAUCIÓN",
+            marker=dict(color="#f39c12", size=6, symbol="x"), yaxis="y2",
+        ))
     if not alertas.empty:
         fig.add_trace(go.Scatter(
             x=alertas["timestamp"], y=alertas["proba_alerta"],
-            mode="markers", name="ALERTA_6H",
-            marker=dict(color="red", size=6, symbol="x"), yaxis="y2",
+            mode="markers", name="ALERTA",
+            marker=dict(color="#e74c3c", size=6, symbol="x"), yaxis="y2",
         ))
         for ts in alertas["timestamp"].iloc[::max(1, len(alertas) // 200)]:
             fig.add_vline(x=ts, line=dict(color="red", width=0.6, dash="dot"), opacity=0.3)
 
     fig.update_layout(
-        title="P_basin (lluvia) y Q_scs_proxy (escorrentía) — marcadores rojos = ALERTA_6H",
+        title="P_basin (lluvia) y Q_scs_proxy (escorrentía) — marcadores = PRECAUCIÓN/ALERTA",
         xaxis=dict(title="Fecha"),
         yaxis=dict(title=dict(text="P_basin (mm/h)", font=dict(color="#2980b9"))),
         yaxis2=dict(
@@ -538,7 +582,7 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
     st.divider()
 
     # métricas del modelo
-    st.subheader("Métricas del modelo (umbral operativo = 0.20)")
+    st.subheader("Métricas del modelo (umbrales ternarios: PRECAUCIÓN ≥0.30, ALERTA ≥0.70)")
     c1, c2, c3 = st.columns(3)
     c1.metric(
         "Recall clase positiva", f"{RECALL_OPERATIVO:.3f}",
@@ -549,8 +593,8 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
         help="De las alertas disparadas ¿cuántas son eventos reales?"
     )
     c3.metric(
-        "Umbral de decisión", str(UMBRAL_ALERTA),
-        help="Probabilidad mínima para disparar ALERTA_6H"
+        "Umbrales de decisión", f"{UMBRAL_PRECAUCION} / {UMBRAL_ALERTA}",
+        help="PRECAUCIÓN ≥ 0.30 | ALERTA ≥ 0.70"
     )
     st.caption(
         "Métricas calculadas sobre split cronológico 82/18. "
@@ -703,13 +747,13 @@ def _simulador_modelo(modelo) -> None:
     if st.button("Calcular predicción", type="primary"):
         x_df = pd.DataFrame([x_vec])[FEATURE_COLS]
         proba = float(modelo.predict_proba(x_df)[0, 1])
-        estado_pred = "ALERTA_6H" if proba > UMBRAL_ALERTA else "NORMAL"
+        estado_pred = clasificar_estado(proba)
         st.markdown(
             _estado_semaforo_html(estado_pred, proba),
             unsafe_allow_html=True,
         )
         st.caption(
-            f"Probabilidad bruta: **{proba:.4f}** — umbral operativo: {UMBRAL_ALERTA}. "
+            f"Probabilidad bruta: **{proba:.4f}** — umbrales: PRECAUCIÓN ≥{UMBRAL_PRECAUCION}, ALERTA ≥{UMBRAL_ALERTA}. "
             "Las features derivadas son aproximaciones; en producción se calculan de la serie real."
         )
 
