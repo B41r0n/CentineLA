@@ -5,3 +5,4 @@ venv_test/
 .venv/
 .env
 data/raw/*.csv
+simulate/models/rf_6h*.joblib
