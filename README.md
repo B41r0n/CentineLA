@@ -79,13 +79,9 @@ CentineLA/
 ├── STATUS_REPORT.md                        # Auditoría de solo lectura del 2026-07-21
 ├── RESUMEN_SESION_CENTINELA_2026-07-11.md  # Resumen de la sesión que cerró proxy, validación y ETL
 │
-├── centinela-demo/
-│   └── CentineLA_Sesion_Fase3_Export.md    # Resumen del cierre de la Fase 3 (dashboard)
-│
 ├── scripts/
 │   ├── 01_buscar_estaciones.py             # Filtra catálogo IDEAM por Valle de Aburrá y rankea por distancia a La Honda
-│   ├── 02_pull_historico.py                # Descarga precipitación histórica/tiempo real por estación
-│   └── log_pajarito.txt                    # Log de ejemplo de la descarga de Pajarito (164 693 filas antes de dedup)
+│   └── 02_pull_historico.py                # Descarga precipitación histórica/tiempo real por estación
 │
 ├── data/
 │   ├── raw/
@@ -94,7 +90,7 @@ CentineLA/
 │   │   ├── historico_0027015310.csv        # Metromedellín (NO trackeado)
 │   │   └── historico_0027015330.csv        # Olaya Herrera (NO trackeado)
 │   │
-│   └── processed/                          # (NO trackeado excepto los .png)
+│   └── processed/                          # Trackeado para deploy
 │       ├── proxy_q_la_honda.csv            # Proxy SCS-CN horario
 │       ├── proxy_q_la_honda_eventos.png    # Serie completa + marcas de eventos (vacío hoy)
 │       ├── filas_baja_calidad.csv          # Filas con n_estaciones_disponibles < 2
@@ -111,13 +107,13 @@ CentineLA/
 │   ├── 07_entrenar_modelo_6h.py            # 3 enfoques de RandomForestRegressor
 │   ├── 08_clasificador_6h.py               # RandomForestClassifier binario (modelo en producción)
 │   ├── 09_gateway_simulado.py              # Gateway simulado en modo streaming
-│   └── models/                             # (NO trackeado)
-│       └── clf_6h.joblib
+│   └── models/                             # Trackeado para deploy
+│       ├── clf_6h.joblib
+│       └── clf_6h_baseline_20260913.joblib # Respaldo del modelo previo
 │
 └── dashboard/
     ├── app.py                              # Dashboard Streamlit
-    ├── _check_fixes.py                     # Script de verificación de fixes y simulador
-    └── requirements.txt                    # requirements pinnados del dashboard
+    └── _check_fixes.py                     # Script de verificación de fixes y simulador
 ```
 
 ---
@@ -836,15 +832,10 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
 & C:\Users\Nico\Desktop\CentineLA\venv\Scripts\Activate.ps1
 ```
 
-O crear uno nuevo e instalar dependencias. Hay dos archivos de requerimientos:
-
-* `requirements.txt` (raíz) — lista de paquetes sin versiones fijas; ahora incluye todo lo necesario para el pipeline y el dashboard.
-* `dashboard/requirements.txt` — versión pinnada usada para reproducir el entorno del dashboard.
+O crear uno nuevo e instalar dependencias. El único archivo de requerimientos es `requirements.txt` en la raíz; incluye las versiones exactas del entorno de entrenamiento y del dashboard.
 
 ```bash
 pip install -r requirements.txt
-# o, para reproducibilidad exacta del dashboard:
-pip install -r dashboard/requirements.txt
 ```
 
 ### 8.2 Orden de ejecución
@@ -966,15 +957,18 @@ CENTINELA_CONTEXTO_TECNICO.md
 README.md
 RESUMEN_SESION_CENTINELA_2026-07-11.md
 STATUS_REPORT.md
-centinela-demo/CentineLA_Sesion_Fase3_Export.md
 dashboard/_check_fixes.py
 dashboard/app.py
-dashboard/requirements.txt
-data/processed/proxy_q_la_honda_eventos.png
 requirements.txt
+data/processed/dataset_12h.csv
+data/processed/dataset_24h.csv
+data/processed/dataset_6h.csv
+data/processed/filas_baja_calidad.csv
+data/processed/log_gateway_simulado.csv
+data/processed/proxy_q_la_honda.csv
+data/processed/proxy_q_la_honda_eventos.png
 scripts/01_buscar_estaciones.py
 scripts/02_pull_historico.py
-scripts/log_pajarito.txt
 simulate/04_scs_cn_proxy.py
 simulate/05_validar_proxy_eventos.py
 simulate/06_etl_features.py
@@ -982,6 +976,11 @@ simulate/07_entrenar_modelo_6h.py
 simulate/08_clasificador_6h.py
 simulate/09_gateway_simulado.py
 simulate/cuenca_la_honda_params.py
+simulate/models/clf_6h.joblib
+simulate/models/clf_6h_baseline_20260913.joblib
+simulate/models/rf_6h.joblib
+simulate/models/rf_6h_delta.joblib
+simulate/models/rf_6h_weighted.joblib
 ```
 
 ### Archivos NO trackeados (`.gitignore`)
@@ -993,11 +992,9 @@ venv/
 venv_test/
 .venv/
 data/raw/*.csv
-simulate/models/*.joblib
-data/processed/*.csv
 ```
 
-Por tanto, los siguientes artefactos esenciales **no están en Git** y deben regenerarse o transferirse por otro canal:
+Por tanto, los siguientes artefactos **no están en Git** y deben regenerarse o transferirse por otro canal:
 
 * `data/raw/historico_*.csv`
 * `data/raw/estaciones_candidatas.csv`
@@ -1039,6 +1036,7 @@ METROMEDELLIN_GAP_FIN    = pd.Timestamp("2019-07-26 11:00:00")
 4. **`CENTINELA_CONTEXTO_TECNICO.md` ubica la estructura del repo bajo `centinela-demo/`, pero el repo real usa `CentineLA/` como raíz.**
    * La sección “Estructura del repo (`centinela-demo/`)” muestra carpetas `centinela-demo/scripts/`, `centinela-demo/data/`, etc.
    * Realmente los scripts, datos y modelos están directamente bajo `CentineLA/`, no anidados en `centinela-demo/`.
+   * Además, la carpeta `centinela-demo/` y su contenido fueron eliminados del repositorio en esta sesión.
 
 5. **`CENTINELA_CONTEXTO_TECNICO.md` dice que `07_entrenar_modelo_6h.py` contiene el clasificador RF, pero el clasificador está en `08_clasificador_6h.py`.**
    * Línea 25: “`simulate/07_entrenar_modelo_6h.py` — 3 enfoques RF regresor + RF clasificador; joblib dump de los 3 modelos.”
@@ -1052,11 +1050,6 @@ METROMEDELLIN_GAP_FIN    = pd.Timestamp("2019-07-26 11:00:00")
    * `STATUS_REPORT.md` línea 84-88 documenta que alguien esperaba ~77 %.
    * `dashboard/_check_fixes.py` y la ejecución real arrojan ~0.965 (96.5 %) con `hora_dia=14, mes=7`.
    * No hay documentación previa en el repo que fije 77 % como objetivo; parece una expectativa externa incorrecta.
-
-8. **`CENTINELA_CONTEXTO_TECNICO.md` y `STATUS_REPORT.md` contienen conteos históricos que no coinciden exactamente con el CSV de Pajarito presente.**
-   * El contexto dice “159.549 filas” para Pajarito.
-   * El log `scripts/log_pajarito.txt` muestra “Paginación por años completada: 164693 filas” antes del dedup; tras dedup el CSV tiene un número ligeramente distinto.
-   * La discrepancia es menor y explicable por el paso de deduplicación, pero no está documentada explícitamente en el contexto.
 
 ---
 
@@ -1076,7 +1069,7 @@ METROMEDELLIN_GAP_FIN    = pd.Timestamp("2019-07-26 11:00:00")
 | Sensor canónico | 240 | `04_scs_cn_proxy.py` |
 | Sensor QA Olaya | 257 | `04_scs_cn_proxy.py` |
 | Umbral alerta | 0.20 | `08`, `09`, `dashboard/app.py` |
-| Recall operativo | 0.743169 | `08_clasificador_6h.py` (barrido) |
-| Precisión operativa | 0.400000 | `08_clasificador_6h.py` (barrido) |
+| Recall operativo | 0.752998 | `08_clasificador_6h.py` (barrido, umbral 0.20) |
+| Precisión operativa | 0.415344 | `08_clasificador_6h.py` (barrido, umbral 0.20) |
 | Gateway validación | 500 timestamps, ε=1e-6 | `09_gateway_simulado.py` |
-| Alertas/NORMAL gateway | 4 947 / 38 918 | `09_gateway_simulado.py` |
+| Alertas/NORMAL gateway | 5 028 / 40 167 | `09_gateway_simulado.py` |
