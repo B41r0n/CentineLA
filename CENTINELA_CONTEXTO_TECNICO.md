@@ -22,7 +22,7 @@ Fase 2 CERRADA. Scripts implementados y ejecutados:
 - `simulate/05_validar_proxy_eventos.py` — validación exploratoria del proxy contra eventos conocidos; modo exploratorio si no hay fechas externas (evita inferencia circular).
 - `simulate/06_etl_features.py` — ETL de features/targets con lags, rolling sums, Q_actual/Q_lags, diagnóstico pre-filtro mensual y split cronológico preservado entre corridas.
 - `simulate/07_entrenar_modelo_6h.py` — 3 enfoques de RF regresor (target absoluto, delta, weighted) + comparación contra baseline de persistencia; joblib dump de los 3 modelos. El clasificador no está en este script; está en `simulate/08_clasificador_6h.py`.
-- `simulate/08_clasificador_6h.py` — clasificador binario RF con barrido de umbrales 0.5→0.1 sobre probabilidades y recomendación operativa.
+- `simulate/08_clasificador_6h.py` — clasificador binario RF con barrido de umbrales 0.5→0.1 sobre probabilidades. El dashboard aplica sobre esa probabilidad una escala ternaria: NORMAL `<0.30`, PRECAUCIÓN `[0.30, 0.70)`, ALERTA `≥0.70`.
 - `simulate/09_gateway_simulado.py` — simula gateway RPi4 fila-a-fila, valida features streaming vs batch (epsilon 1e-6), genera `log_gateway_simulado.csv`.
 - `data/processed/filas_baja_calidad.csv` — filas con n_estaciones<2, conservadas para auditoría QA.
 
@@ -79,7 +79,8 @@ CUENCA ALTA                    TRAMO MEDIO                  TRAMO BAJO
 - **Pivote de regresión a clasificación:** se probaron 3 enfoques de `RandomForestRegressor` — ninguno superó el baseline de persistencia simple en el subset de eventos reales. Causa: 366 eventos en 43k filas (0.85%), el RF promedia hacia la media y diluye la cola. Decisión: pivote a `RandomForestClassifier`.
 - **Target de clasificación:** `label_6h = 1` si `target_6h > p90(train)`. p90 calculado **solo sobre train**, nunca sobre test. Con distribución actual p90=0.0, equivale a "hora con escorrentía >0".
 - **Algoritmo en producción:** `RandomForestClassifier(n_estimators=200, random_state=42, class_weight='balanced')`. `class_weight='balanced'` es la corrección estándar de sklearn para desbalance.
-- **Umbral operativo elegido:** 0.20 sobre `predict_proba`. Recall=0.74, FP/TP≈1.5:1. Justificado porque el clasificador es una fuente dentro de la fusión multi-sensor (regla: ≥2 fuentes críticas = rojo), no árbitro único.
+- **Umbral operativo del gateway (binario):** 0.20 sobre `predict_proba` en `09_gateway_simulado.py`. Recall=0.74, FP/TP≈1.5:1.
+- **Sistema de alertas del dashboard (ternario, desde 2026-10):** NORMAL `proba < 0.30` (verde #2ecc71), PRECAUCIÓN `0.30 ≤ proba < 0.70` (amarillo #f39c12), ALERTA `proba ≥ 0.70` (rojo #e74c3c) — ver `clasificar_estado()` y `UMBRAL_PRECAUCION`/`UMBRAL_ALERTA` en `dashboard/app.py`. El log histórico `ALERTA_6H`/`NORMAL` se normaliza a ternario al cargar. El clasificador sigue siendo una fuente dentro de la fusión multi-sensor (regla: ≥2 fuentes críticas = rojo), no árbitro único.
 - **Techo real de recall:** ~0.82 con umbral 0.10. Ningún umbral en [0.1, 0.5] alcanza recall ≥ 0.85 — limitación conocida, mitigada por diseño multi-fuente.
 - **Split:** cronológico 82/18. Corte: train hasta 2025-07-06 15:00, test desde 2025-07-06 16:00. Nunca aleatorio.
 - **Horizonte priorizado:** 6h (cuenca de ladera, tiempo de concentración corto; deadline oct-2026). Datasets 12h/24h generados pero no entrenados con el mismo rigor.
@@ -155,9 +156,9 @@ CentineLA/
     05_validar_proxy_eventos.py  # validación exploratoria sin inferir ground truth
     06_etl_features.py           # ETL features + Q_actual/Q_lags + split preservado
     07_entrenar_modelo_6h.py     # 3 enfoques RF regresor; joblib dump
-    08_clasificador_6h.py        # clasificador binario + barrido de umbrales
+    08_clasificador_6h.py        # clasificador binario + barrido de umbrales (probabilidad cruda)
     09_gateway_simulado.py       # gateway streaming con validación batch vs stream
-    models/                      # NO trackeado: rf_6h*.joblib, clf_6h.joblib
+    models/                      # trackeado: clf_6h.joblib, clf_6h_baseline_20260913.joblib; rf_6h*.joblib ignorado
   dashboard/
     app.py                       # Streamlit — Fase 3 CERRADA
     _check_fixes.py              # verificaciones del dashboard
@@ -202,7 +203,8 @@ CentineLA/
 - **P_basin:** promedio `skipna=True` de las 3 estaciones por hora. Resample 1h con `sum()` (datos son incrementos de pluviómetro de balde cada ~10 min, no acumulados diarios).
 - **SCS-CN:** CN=81.1 desde `cuenca_la_honda_params.py`. P acumulado como rolling 24h. Aplicación de fórmula de evento único a serie continua es aproximación — documentada como limitación; calibrar con nivel real cuando llegue.
 - **Target de clasificación:** `label_6h = target_6h > p90(train)`. p90 calculado solo sobre train — nunca sobre test (fuga si no). Con distribución actual p90=0.0.
-- **Umbral operativo elegido:** 0.20. Recall=0.74, FP/TP≈1.5:1. El clasificador es una fuente dentro de la fusión multi-sensor (regla ≥2 fuentes críticas = rojo), no árbitro único — se acepta más FP a cambio de no perderse eventos.
+- **Umbral binario histórico del gateway:** 0.20. Recall=0.74, FP/TP≈1.5:1. El clasificador es una fuente dentro de la fusión multi-sensor (regla ≥2 fuentes críticas = rojo), no árbitro único — se acepta más FP a cambio de no perderse eventos.
+- **Escala ternaria del dashboard (2026-10):** NORMAL `<0.30` / PRECAUCIÓN `[0.30, 0.70)` / ALERTA `≥0.70` sobre la misma `predict_proba`. Define el estado mostrado al operador y comunitario; no sustituye la regla multi-fuente.
 - **Horizonte 6h priorizado:** tiempo de concentración corto + deadline oct-2026. Datasets 12h/24h generados pero no entrenados con el mismo rigor.
 
 ## Fase 2 — Resultado de modelado honesto
@@ -234,7 +236,7 @@ Techo real de recall aislado: ~0.82. Limitación mitigada por fusión multi-fuen
 ## Fase 2 — Gateway simulado
 
 - `simulate/09_gateway_simulado.py` valida features streaming vs batch con 500 timestamps aleatorios, epsilon 1e-6 — **validación pasó limpia**.
-- Inferencia sobre serie completa (~9.5 años): 4947 alertas ALERTA_6H / 38918 NORMAL.
+- Inferencia sobre serie completa (~9.5 años): 4947 alertas ALERTA_6H / 38918 NORMAL (log binario del gateway). El dashboard lo re-etiqueta a NORMAL / PRECAUCIÓN / ALERTA con los umbrales ternarios.
 - Ventana de test real (2025-07-06 → 2026-07-09): 693 alertas en 7883 filas (8.8%), consistente con barrido de umbrales (~680 esperado para umbral 0.20).
 - Implementación: micro-lotes de 2048 filas con `n_jobs=1` en inferencia para evitar overhead de threading.
 

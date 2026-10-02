@@ -26,7 +26,7 @@ El sistema **CentineLA** intenta cerrar esa brecha usando datos públicos de pre
 ### Qué resuelve
 
 1. Consolida un proxy horario de escorrentía (`Q_scs_proxy`) a partir de estaciones pluviométricas cercanas.
-2. Entrena un clasificador binario que, 6 h antes, estima si la escorrentía superará un umbral crítico.
+2. Entrena un clasificador que, 6 h antes, estima el nivel de riesgo en tres estados: NORMAL, PRECAUCIÓN o ALERTA.
 3. Simula cómo un gateway embebido (RPi4) calcularía esas features en tiempo real.
 4. Expone el resultado en un dashboard de dos vistas: pública y operador/JAC.
 
@@ -110,7 +110,7 @@ CentineLA/
 │   ├── 05_validar_proxy_eventos.py         # Valida proxy contra eventos conocidos (modo exploratorio)
 │   ├── 06_etl_features.py                  # ETL de features, target y split cronológico
 │   ├── 07_entrenar_modelo_6h.py            # 3 enfoques de RandomForestRegressor
-│   ├── 08_clasificador_6h.py               # RandomForestClassifier binario (modelo en producción)
+│   ├── 08_clasificador_6h.py               # RandomForestClassifier: NORMAL / PRECAUCIÓN / ALERTA (modelo en producción)
 │   ├── 09_gateway_simulado.py              # Gateway simulado en modo streaming
 │   └── models/                             # Trackeado para deploy
 │       ├── clf_6h.joblib
@@ -530,9 +530,15 @@ Los tres regresores se guardaban como `rf_6h.joblib` (~61 725 KB), `rf_6h_delta.
 
 ### 5.2 RandomForestClassifier — modelo en producción
 
-`simulate/08_clasificador_6h.py` pivotea el problema a clasificación binaria.
+`simulate/08_clasificador_6h.py` entrena un clasificador binario (`target_6h > p90`). El dashboard (`dashboard/app.py`) interpreta la probabilidad bruta con una escala ternaria:
 
-**Target binario:**
+| Estado | Rango de probabilidad | Color |
+|--------|----------------------|-------|
+| NORMAL | `proba < 0.30` | verde (#2ecc71) |
+| PRECAUCIÓN | `0.30 ≤ proba < 0.70` | amarillo (#f39c12) |
+| ALERTA | `proba ≥ 0.70` | rojo (#e74c3c) |
+
+**Target binario (entrenamiento):**
 
 ```python
 p90 = float(train[TARGET_COL].quantile(0.90))
@@ -570,14 +576,14 @@ RandomForestClassifier(
     accuracy                       0.963240      7753
 ```
 
-**Barrido de umbrales sobre `predict_proba` (clase positiva):**
+**Barrido de umbrales sobre `predict_proba` (clase positiva) — referencia del modelo binario:**
 
 | Umbral | Recall | Precisión | FN | FP | TP |
 |--------|--------|-----------|----|----|----|
 | 0.50 | 0.606557 | 0.611570 | 144 | 141 | 222 |
 | 0.40 | 0.658470 | 0.539150 | 125 | 206 | 241 |
 | 0.30 | 0.702186 | 0.476809 | 109 | 282 | 257 |
-| **0.20** | **0.743169** | **0.400000** | **94** | **408** | **272** |
+| 0.20 | 0.743169 | 0.400000 | 94 | 408 | 272 |
 | 0.15 | 0.781421 | 0.311208 | 80 | 633 | 286 |
 | 0.10 | 0.816940 | 0.256873 | 67 | 865 | 299 |
 
@@ -590,7 +596,7 @@ LIMITACION A DOCUMENTAR: ningun umbral del barrido alcanza recall >= 0.85.
 El maximo recall alcanzable en [0.1, 0.5] es 0.816940 con umbral=0.10
 ```
 
-A pesar de eso, el proyecto adopta manualmente **umbral operativo = 0.20** porque el clasificador es solo **una fuente dentro de una fusión multi-sensor** (regla ≥2 fuentes críticas = rojo); se acepta más falsos positivos a cambio de no perder eventos.
+El dashboard expone tres niveles de alerta (NORMAL / PRECAUCIÓN / ALERTA) sobre la misma probabilidad binaria. El umbral de ALERTA (0.70) es más conservador que el umbral binario histórico (0.20), mientras que PRECAUCIÓN (0.30) actúa como zona de vigilancia. El clasificador sigue siendo **una fuente dentro de una fusión multi-sensor**; se acepta más falsos positivos a cambio de no perder eventos.
 
 **Feature importance del clasificador (ordenada):**
 
@@ -636,7 +642,7 @@ N_VALIDACION_TS = 500
 ```
 
 4. **Inferencia por micro-lotes:** procesa features en lotes de 2048 y predice con `n_jobs=1` para evitar overhead de threading.
-5. **Umbral de alerta:** `UMBRAL_ALERTA = 0.20`.
+5. **Umbral de alerta (gateway):** `UMBRAL_ALERTA = 0.20` (binario en `09_gateway_simulado.py`). El dashboard reinterpreta esa probabilidad en tres estados: NORMAL `< 0.30`, PRECAUCIÓN `[0.30, 0.70)`, ALERTA `≥ 0.70`.
 
 ### Metodología
 
@@ -716,7 +722,8 @@ streamlit run dashboard/app.py
 ```python
 RECALL_OPERATIVO = 0.743
 PRECISION_OPERATIVA = 0.400
-UMBRAL_ALERTA = 0.20
+UMBRAL_PRECAUCION = 0.30
+UMBRAL_ALERTA = 0.70
 
 N_NODOS = 5
 
@@ -737,7 +744,7 @@ ANCLAS = [
 
 ### Vista Pública
 
-* **Semáforo + probabilidad:** muestra el último estado del log (`NORMAL` o `ALERTA_6H`) y `proba_alerta`.
+* **Semáforo + probabilidad:** muestra el último estado del log (`NORMAL`, `PRECAUCIÓN` o `ALERTA`) y `proba_alerta`. Estados: NORMAL `proba < 0.30` (verde), PRECAUCIÓN `[0.30, 0.70)` (amarillo), ALERTA `≥ 0.70` (rojo).
 * **Tarjetas de lluvia acumulada:**
   * Últimas 24 h.
   * Últimos 30 días.
@@ -747,7 +754,7 @@ ANCLAS = [
   * Interactivo con Folium si hay internet.
   * Fallback estático con Matplotlib si no hay conexión.
   * 5 nodos interpolados por longitud de arco entre las 3 anclas.
-* **Calendario de alertas:** cuadrícula de los últimos 90 días; rojo = al menos una hora `ALERTA_6H` ese día.
+* **Calendario de alertas:** cuadrícula de los últimos 90 días; verde = solo NORMAL, amarillo = al menos una hora PRECAUCIÓN, rojo = al menos una hora ALERTA.
 
 ### Vista Operador (JAC)
 
@@ -756,7 +763,7 @@ ANCLAS = [
   * `P_basin` (eje izquierdo).
   * `Q_scs_proxy` + alertas (eje derecho).
   * Selector de rango de fechas.
-* **Métricas del modelo:** recall=0.743, precisión=0.400, umbral=0.20.
+* **Métricas del modelo:** recall=0.743, precisión=0.400 (referencia del modelo binario); umbrales ternarios PRECAUCIÓN=0.30, ALERTA=0.70.
 * **Feature importance:** barras horizontales de `clf_6h.joblib`.
 * **Inspección de punto histórico:** selección de fecha y hora para ver `estado`, `proba_alerta` y features.
 * **Simulador interactivo del modelo.**
@@ -812,7 +819,7 @@ x_vec = {
 }
 ```
 
-> El preset “Lluvia fuerte sostenida” arroja una probabilidad real de aproximadamente **0.965** (96.5 %) con `hora_dia=14, mes=7`, según `dashboard/_check_fixes.py`. Eso dispara `ALERTA_6H` (umbral 0.20) pero con una confianza mucho mayor que ~77 %.
+> El preset “Lluvia fuerte sostenida” arroja una probabilidad real de aproximadamente **0.965** (96.5 %) con `hora_dia=14, mes=7`, según `dashboard/_check_fixes.py`. Eso dispara el estado **ALERTA** (umbral ternario `≥ 0.70`) con una confianza mucho mayor que ~77 %.
 
 ### 7.3 `dashboard/_check_fixes.py`
 
@@ -930,8 +937,8 @@ Solo se incluyen limitaciones confirmadas por el código o los datos:
 4. **SCS-CN aplicado como evento único sobre serie continua.** El proxy usa acumulado 24 h sin reiniciar explícitamente eventos de lluvia; es una aproximación documentada.
 5. **Desbalance extremo.** Con `p90=0.0`, la clase positiva equivale a `target_6h > 0`, que representa ~8.9 % en entrenamiento y ~4.7 % en test.
 6. **No hay split aleatorio; es cronológico.** El test está fijado desde `2025-07-06 16:00` en adelante. Cualquier cambio estructural en los datos recientes afecta las métricas.
-7. **Recall aislado del clasificador no supera ~0.82.** A umbral 0.10 se alcanza 0.817; a 0.20 es 0.743. El diseño asume que el clasificador será una de varias fuentes en una regla de fusión multi-sensor.
-8. **Modelos y datos grandes no están versionados.** `.gitignore` los excluye; deben regenerarse o compartirse por otro medio.
+7. **Recall aislado del clasificador no supera ~0.82.** A umbral 0.10 se alcanza 0.817; a 0.20 es 0.743. El diseño asume que el clasificador será una de varias fuentes en una regla de fusión multi-sensor. El estado PRECAUCIÓN (0.30–0.70) amplía la vigilancia sin disparar la alerta máxima.
+8. **Modelos y datos grandes están parcialmente versionados.** Desde la limpieza de 2026-10, los datasets procesados y `clf_6h.joblib`/`clf_6h_baseline_20260913.joblib` están en el repo; los `rf_6h*.joblib` y `data/raw/*.csv` se regeneran o comparten por otro medio.
 9. **Capa física (LoRa, sensores, cámaras) no implementada.** Solo existe el simulador y la arquitectura documentada.
 10. **Prototipo IoT base documentado solo como referencia.** Los issues del sketch Wokwi (credenciales WiFi expuestas, `WiFiMulti`, umbral de temperatura) no se han resuelto en este repo.
 
@@ -1047,9 +1054,9 @@ METROMEDELLIN_GAP_FIN    = pd.Timestamp("2019-07-26 11:00:00")
    * Línea 25: “`simulate/07_entrenar_modelo_6h.py` — 3 enfoques RF regresor + RF clasificador; joblib dump de los 3 modelos.”
    * El script `07` solo entrena regresores y genera `rf_6h*.joblib`. El clasificador se entrena y guarda en `08_clasificador_6h.py` como `clf_6h.joblib`.
 
-6. **`08_clasificador_6h.py` recomienda automáticamente un umbral distinto al adoptado operativamente.**
-   * El recomendador interno prioriza `recall >= 0.85`; como ningún umbral del barrido lo alcanza, no recomienda 0.20.
-   * A pesar de eso, `09_gateway_simulado.py` y `dashboard/app.py` usan `UMBRAL_ALERTA = 0.20` por decisión externa (fusión multi-sensor).
+6. **`08_clasificador_6h.py` barre umbrales binarios (0.10–0.50); el dashboard usa dos umbrales ternarios.**
+   * El recomendador interno prioriza `recall >= 0.85`; como ningún umbral del barrido lo alcanza, no recomienda un valor único.
+   * `09_gateway_simulado.py` sigue usando `UMBRAL_ALERTA = 0.20` (binario); `dashboard/app.py` expone tres estados con `UMBRAL_PRECAUCION = 0.30` y `UMBRAL_ALERTA = 0.70` sobre la misma probabilidad. Las métricas de validación (recall/precisión) corresponden al modelo binario y no se han recalculado aún para los estados ternarios.
 
 7. **Preset “Lluvia fuerte sostenida” del dashboard no produce ~77 %.**
    * `STATUS_REPORT.md` línea 84-88 documenta que alguien esperaba ~77 %.
@@ -1073,8 +1080,11 @@ METROMEDELLIN_GAP_FIN    = pd.Timestamp("2019-07-26 11:00:00")
 | Estaciones usadas | 0027015290, 0027015310, 0027015330 | `04_scs_cn_proxy.py` |
 | Sensor canónico | 240 | `04_scs_cn_proxy.py` |
 | Sensor QA Olaya | 257 | `04_scs_cn_proxy.py` |
-| Umbral alerta | 0.20 | `08`, `09`, `dashboard/app.py` |
-| Recall operativo | 0.752998 | `08_clasificador_6h.py` (barrido, umbral 0.20) |
-| Precisión operativa | 0.415344 | `08_clasificador_6h.py` (barrido, umbral 0.20) |
+| Sistema de alertas | NORMAL / PRECAUCIÓN / ALERTA | `dashboard/app.py` |
+| Umbral PRECAUCIÓN | 0.30 | `dashboard/app.py` (`UMBRAL_PRECAUCION`) |
+| Umbral ALERTA | 0.70 | `dashboard/app.py` (`UMBRAL_ALERTA`) |
+| Umbral binario gateway | 0.20 | `09_gateway_simulado.py` |
+| Recall binario (umbral 0.20) | 0.752998 | `08_clasificador_6h.py` (barrido) |
+| Precisión binaria (umbral 0.20) | 0.415344 | `08_clasificador_6h.py` (barrido) |
 | Gateway validación | 500 timestamps, ε=1e-6 | `09_gateway_simulado.py` |
 | Alertas/NORMAL gateway | 5 028 / 40 167 | `09_gateway_simulado.py` |
