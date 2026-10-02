@@ -1,5 +1,7 @@
+from pathlib import Path
 import sys
-sys.path.insert(0, "c:/Users/Nico/Desktop/CentineLA/dashboard")
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE_DIR / "dashboard"))
 import matplotlib
 matplotlib.use("Agg")
 import importlib
@@ -8,10 +10,10 @@ importlib.reload(app)
 import pandas as pd
 import numpy as np
 
-proxy = pd.read_csv("c:/Users/Nico/Desktop/CentineLA/data/processed/proxy_q_la_honda.csv", parse_dates=["timestamp"])
+proxy = pd.read_csv(BASE_DIR / "data" / "processed" / "proxy_q_la_honda.csv", parse_dates=["timestamp"])
 proxy = proxy.sort_values("timestamp").reset_index(drop=True)
 import joblib
-modelo = joblib.load("c:/Users/Nico/Desktop/CentineLA/simulate/models/clf_6h.joblib")
+modelo = joblib.load(BASE_DIR / "simulate" / "models" / "clf_6h.joblib")
 
 print("=== FIX 1 ===")
 ult_24h, ult_30d, anio_mm, ref_fecha = app._lluvia_acumulada(proxy)
