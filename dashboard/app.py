@@ -27,6 +27,31 @@ MODEL_PATH = BASE_DIR / "simulate" / "models" / "clf_6h.joblib"
 UMBRAL_PRECAUCION = 0.30
 UMBRAL_ALERTA = 0.70
 
+# ── tokens de diseño por estado (única fuente) ──
+ESTADO_UI = {
+    "NORMAL": {
+        "color": "#2ecc71",
+        "pill_txt": "#34d27b",
+        "soft": "rgba(46,204,113,.14)",
+        "banner": "NORMAL",
+        "accion": "No hay señales de alerta. Monitoreo activo.",
+    },
+    "PRECAUCIÓN": {
+        "color": "#f39c12",
+        "pill_txt": "#f5b041",
+        "soft": "rgba(243,156,18,.14)",
+        "banner": "PRECAUCIÓN — LLUVIAS SOSTENIDAS",
+        "accion": "Lluvias sostenidas detectadas. Mantenerse atentos.",
+    },
+    "ALERTA": {
+        "color": "#e74c3c",
+        "pill_txt": "#ff6b5e",
+        "soft": "rgba(231,76,60,.16)",
+        "banner": "ALERTA — RIESGO EN LAS PRÓXIMAS 6 HORAS",
+        "accion": "Riesgo de creciente en las próximas 6 horas. Activar protocolo de la JAC.",
+    },
+}
+
 
 def clasificar_estado(proba: float) -> str:
     """Sistema ternario de alertas."""
@@ -195,9 +220,13 @@ def _mapa_folium(anclas: list[dict], nodos: list[dict], estado: str) -> None:
     lons_a = [a["lon"] for a in anclas]
     centro_lat = float(np.mean(lats_a))
     centro_lon = float(np.mean(lons_a))
-    # Crear el mapa con location+zoom_start como fallback, pero usar fit_bounds
-    # para forzar el encuadre en las 3 anclas independientemente del height.
-    m = folium.Map(location=[centro_lat, centro_lon], zoom_start=13, tiles="OpenStreetMap")
+    # Tema oscuro: CartoDB dark_matter
+    m = folium.Map(
+        location=[centro_lat, centro_lon],
+        zoom_start=13,
+        tiles="CartoDB dark_matter",
+        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    )
     pad = 0.015   # ~1.5 km de margen alrededor de las anclas
     m.fit_bounds(
         [[min(lats_a) - pad, min(lons_a) - pad],
@@ -205,14 +234,10 @@ def _mapa_folium(anclas: list[dict], nodos: list[dict], estado: str) -> None:
     )
 
     coords = [[a["lat"], a["lon"]] for a in anclas]
-    folium.PolyLine(coords, color="#1f77b4", weight=3, opacity=0.7).add_to(m)
+    folium.PolyLine(coords, color="#3498db", weight=3, opacity=0.7).add_to(m)
 
-    if estado == "ALERTA":
-        color_nodo = "red"
-    elif estado == "PRECAUCIÓN":
-        color_nodo = "orange"
-    else:
-        color_nodo = "green"
+    ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
+    color_nodo = ui["color"]
     for n in nodos:
         folium.CircleMarker(
             location=[n["lat"], n["lon"]],
@@ -227,7 +252,7 @@ def _mapa_folium(anclas: list[dict], nodos: list[dict], estado: str) -> None:
 
     st_folium(m, height=550, use_container_width=True, returned_objects=[])
     st.caption(
-        "Mapa interactivo OpenStreetMap. "
+        "Mapa interactivo (CartoDB dark matter). "
         "Posiciones de nodos son ilustrativas — no GPS de campo."
     )
 
@@ -241,23 +266,18 @@ def _mapa_estatico(anclas: list[dict], nodos: list[dict], estado: str) -> None:
     lons_linea = [a["lon"] for a in anclas]
     lats_nodos = [n["lat"] for n in nodos]
     lons_nodos = [n["lon"] for n in nodos]
-    if estado == "ALERTA":
-        color = "#e74c3c"
-    elif estado == "PRECAUCIÓN":
-        color = "#f39c12"
-    else:
-        color = "#2ecc71"
+
+    ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
+    color = ui["color"]
 
     fig, ax = plt.subplots(figsize=(9, 6))
+    fig.patch.set_facecolor("#13171d")
+    ax.set_facecolor("#13171d")
 
-    # 1) Recorrido real — linea por las 3 anclas (siempre pasa por los 3 puntos).
-    ax.plot(lons_linea, lats_linea, color="#1f77b4", linewidth=2.5, zorder=2)
+    # 1) Recorrido real — linea por las 3 anclas
+    ax.plot(lons_linea, lats_linea, color="#3498db", linewidth=2.5, zorder=2)
 
-    # 2) Marcadores de ancla: circulo HUECO centrado exactamente en el vertice.
-    #    Se usa marker='o' (circulo) porque su centro geometrico == centro visual,
-    #    sin ambiguedad de orientacion (marker='^' tenia el centro de su bounding-box
-    #    en la coordenada, haciendo que el apice del triangulo quedara visualmente
-    #    por encima del vertice de la linea, aunque las coords fuesen identicas).
+    # 2) Marcadores de ancla
     lat_min = min(a["lat"] for a in anclas)
     lat_max_a = max(a["lat"] for a in anclas)
     lon_min_a = min(a["lon"] for a in anclas)
@@ -268,11 +288,9 @@ def _mapa_estatico(anclas: list[dict], nodos: list[dict], estado: str) -> None:
     for a in anclas:
         ax.scatter(
             [a["lon"]], [a["lat"]],
-            s=200, facecolors="white", edgecolors="#1f77b4",
+            s=200, facecolors="white", edgecolors="#3498db",
             linewidths=2.5, zorder=5, marker="o",
         )
-        # Dirección del label: hacia arriba si el ancla está cerca del borde inferior
-        # (evita recorte); hacia la izquierda si está cerca del borde derecho.
         cerca_inferior = (a["lat"] - lat_min) / lat_rng < 0.25
         cerca_derecha = (lon_max_a - a["lon"]) / lon_rng < 0.25
         if cerca_inferior:
@@ -287,36 +305,34 @@ def _mapa_estatico(anclas: list[dict], nodos: list[dict], estado: str) -> None:
             textcoords="offset points",
             xytext=txt_xy,
             ha=txt_ha,
-            fontsize=7, color="#555555", style="italic",
+            fontsize=7, color="#8b95a5", style="italic",
         )
 
-    # 3) Nodos de monitoreo — circulos coloreados por estado, SIN label de texto.
-    #    Los nodos son posiciones ilustrativas proporcionales; sus nombres
-    #    ("Nodo 1", "Nodo 2"...) no aportan informacion geografica real y
-    #    generan solapamiento cuando un nodo cae sobre una ancla.
+    # 3) Nodos de monitoreo
     ax.scatter(lons_nodos, lats_nodos, c=color, s=110, zorder=4, edgecolors="white", linewidths=1.5)
 
-    ax.set_xlabel("Longitud")
-    ax.set_ylabel("Latitud")
+    ax.set_xlabel("Longitud", color="#e8ecf1")
+    ax.set_ylabel("Latitud", color="#e8ecf1")
     ax.set_title(
         "CentineLA — Q. La Honda (posiciones ilustrativas, no GPS de campo)",
-        fontsize=10,
+        fontsize=10, color="#e8ecf1",
     )
-    ax.grid(alpha=0.3)
+    ax.tick_params(colors="#8b95a5")
+    ax.grid(alpha=0.1, color="#232830")
 
-    # Leyenda en lower right (area vacia en este plot — los datos se concentran
-    # en las esquinas left y upper right, dejando lower right libre).
+    # Leyenda
     handle_estado = mpatches.Patch(color=color, label=estado)
     handle_ancla = mlines.Line2D(
         [], [], marker="o", color="w",
-        markerfacecolor="white", markeredgecolor="#1f77b4",
+        markerfacecolor="white", markeredgecolor="#3498db",
         markersize=10, markeredgewidth=2.5, label="Ancla geográfica",
     )
-    ax.legend(handles=[handle_estado, handle_ancla], loc="lower right", fontsize=8)
+    leg = ax.legend(handles=[handle_estado, handle_ancla], loc="lower right", fontsize=8,
+                    facecolor="#13171d", edgecolor="#232830", labelcolor="#e8ecf1")
     plt.tight_layout()
 
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150)
+    fig.savefig(buf, format="png", dpi=150, facecolor="#13171d")
     plt.close(fig)
     buf.seek(0)
     st.image(
@@ -362,69 +378,79 @@ def _color_proba(proba: float) -> str:
     return "#2ecc71"
 
 
+def _gauge_html(proba: float) -> str:
+    """Gauge con tres zonas (verde/amarillo/rojo) y marcador."""
+    p = max(0.0, min(1.0, proba))
+    w_green = UMBRAL_PRECAUCION * 100
+    w_yellow = (UMBRAL_ALERTA - UMBRAL_PRECAUCION) * 100
+    w_red = (1.0 - UMBRAL_ALERTA) * 100
+    return f"""
+<div class="cl-gauge">
+  <div style="width:{w_green}%;background:rgba(46,204,113,.35);border-radius:999px 0 0 999px;"></div>
+  <div style="width:{w_yellow}%;background:rgba(243,156,18,.35);"></div>
+  <div style="width:{w_red}%;background:rgba(231,76,60,.35);border-radius:0 999px 999px 0;"></div>
+  <div class="cl-mk" style="left:{p*100}%"></div>
+</div>
+<div class="cl-gauge-lbl">
+  <span>0%</span><span>30%</span><span>70%</span><span>100%</span>
+</div>
+"""
+
+
+def _hero_html(estado: str, proba: float, ultima_ts_str: str) -> str:
+    """Hero card: pill, título (banner), acción, probabilidad grande, gauge, caption."""
+    ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
+    color_p = _color_proba(proba)
+    return f"""
+<div class="cl-hero" style="--c:{ui['color']}">
+  <div>{_pill(estado)}</div>
+  <div class="title">{ui['banner']}</div>
+  <div class="action">{ui['accion']}</div>
+  <div style="margin-top:14px">
+    <div class="cl-stat" style="text-align:center">
+      <div class="k">Probabilidad de creciente</div>
+      <div class="v" style="color:{color_p}">{proba:.1%}</div>
+    </div>
+  </div>
+  {_gauge_html(proba)}
+  <div style="text-align:center;font-size:12px;color:var(--cl-muted);margin-top:8px">
+    Semáforo calculado con la última lectura disponible ({ultima_ts_str}).
+  </div>
+</div>
+"""
+
+
 def _estado_semaforo_html(estado: str, proba: float) -> str:
-    if estado == "ALERTA":
-        bg, emoji, texto = "#e74c3c", "🔴", "ALERTA — PRÓXIMAS 6 HORAS"
-    elif estado == "PRECAUCIÓN":
-        bg, emoji, texto = "#f39c12", "🟡", "PRECAUCIÓN — CONDICIONES A REVISAR"
-    else:
-        bg, emoji, texto = "#2ecc71", "🟢", "NORMAL"
+    """Semaforo compacto para el simulador: pill + prob + gauge."""
+    ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
     color_p = _color_proba(proba)
     return f"""
-    <div style="display:grid;grid-template-columns:60% 38%;gap:2%;margin-bottom:8px">
-      <div style="background:{bg};border-radius:14px;padding:28px 20px;
-                  text-align:center;color:white;font-size:clamp(18px,3vw,26px);
-                  font-weight:700;letter-spacing:.04em;
-                  box-shadow:0 4px 14px rgba(0,0,0,.25)">
-        {emoji}&nbsp;{texto}
-      </div>
-      <div class="metric-card" style="text-align:center;display:flex;
-                  flex-direction:column;justify-content:center;align-items:center">
-        <div class="metric-label">PROBABILIDAD</div>
-        <div class="metric-value" style="color:{color_p}">{proba:.1%}</div>
-        <div style="font-size:11px;color:#888">umbrales: PRECAUCIÓN ≥{UMBRAL_PRECAUCION} | ALERTA ≥{UMBRAL_ALERTA}</div>
-      </div>
-    </div>
-    """
+<div class="cl-card" style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px">
+  <div>{_pill(estado)}</div>
+  <div style="font-size:14px;color:var(--cl-muted)">Probabilidad de creciente</div>
+  <div class="cl-stat" style="margin:4px 0"><div class="v" style="color:{color_p}">{proba:.1%}</div></div>
+  {_gauge_html(proba)}
+  <div style="font-size:11px;color:var(--cl-muted)">
+    Verde < 30% · Amarillo 30–70% · Rojo ≥ 70%
+  </div>
+</div>
+"""
 
 
-def _banner_publico_html(estado: str, proba: float, ultima_ts_str: str) -> str:
-    """Banner para la vista pública con textos específicos y línea de acción."""
-    if estado == "ALERTA":
-        bg, emoji, texto = "#e74c3c", "🔴", "ALERTA — RIESGO EN LAS PRÓXIMAS 6 HORAS"
-        accion = "Riesgo de creciente en las próximas 6 horas. Activar protocolo de la JAC."
-    elif estado == "PRECAUCIÓN":
-        bg, emoji, texto = "#f39c12", "🟡", "PRECAUCIÓN — LLUVIAS SOSTENIDAS"
-        accion = "Lluvias sostenidas detectadas. Mantenerse atentos."
-    else:
-        bg, emoji, texto = "#2ecc71", "🟢", "NORMAL"
-        accion = "No hay señales de alerta. Monitoreo activo."
-    color_p = _color_proba(proba)
+def semaforo_html(estado: str) -> str:
+    """Semaforo simple (solo estado + pill)."""
+    return _pill(estado)
+
+
+def _tarjeta_html(icono: str, label: str, valor: str, unidad: str = "") -> str:
     return f"""
-    <div style="margin-bottom:8px">
-      <div style="background:{bg};border-radius:14px;padding:28px 20px;
-                  text-align:center;color:white;font-size:clamp(18px,3vw,26px);
-                  font-weight:700;letter-spacing:.04em;
-                  box-shadow:0 4px 14px rgba(0,0,0,.25)">
-        {emoji}&nbsp;{texto}
-      </div>
-      <div style="margin-top:10px;font-size:16px;color:#333;text-align:center">
-        {accion}
-      </div>
-      <div class="metric-card" style="text-align:center;display:flex;
-                  flex-direction:column;justify-content:center;align-items:center;
-                  margin-top:12px">
-        <div class="metric-label">Probabilidad de creciente</div>
-        <div class="metric-value" style="color:{color_p}">{proba:.1%}</div>
-        <div style="font-size:12px;color:#666;margin-top:4px">
-          Verde menos de 30% · Amarillo 30–70% · Rojo 70% o más
-        </div>
-      </div>
-      <div style="text-align:center;font-size:12px;color:#888;margin-top:8px">
-        Semáforo calculado con la última lectura disponible ({ultima_ts_str}).
-      </div>
-    </div>
-    """
+<div class="cl-card cl-stat" style="text-align:center">
+  <div style="font-size:1.6rem;margin-bottom:4px">{icono}</div>
+  <div class="k">{label}</div>
+  <div class="v">{valor}</div>
+  <div class="u">{unidad}</div>
+</div>
+"""
 
 
 def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
@@ -434,7 +460,7 @@ def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
 
     # Estado máximo por día: 0=NORMAL, 1=PRECAUCIÓN, 2=ALERTA
     estado_map = {"NORMAL": 0, "PRECAUCIÓN": 1, "ALERTA": 2}
-    colores = {0: "#2ecc71", 1: "#f39c12", 2: "#e74c3c"}
+    colores = {0: "#1f6f4a", 1: "#f39c12", 2: "#e74c3c"}  # verde apagado para NORMAL
     dia_estado = (
         log.groupby(log["timestamp"].dt.date)["estado"]
         .apply(lambda s: max((estado_map.get(e, 0) for e in s), default=0))
@@ -447,19 +473,19 @@ def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
         color = colores[nivel]
         celda = (
             '<div title="' + str(d) + '" style="background:' + color
-            + ';border-radius:2px;aspect-ratio:1;min-height:14px"></div>'
+            + ';border-radius:4px;aspect-ratio:1;min-height:18px"></div>'
         )
         celdas.append(celda)
 
     grid_html = (
         '<div style="display:grid;grid-template-columns:repeat(18,1fr);'
-        'gap:3px;max-width:100%;margin-bottom:6px">'
+        'gap:4px;max-width:100%;margin-bottom:8px">'
         + "".join(celdas)
         + "</div>"
     )
     cuadro_n = (
         '<span style="display:inline-block;width:12px;height:12px;'
-        'background:#2ecc71;border-radius:2px;vertical-align:middle"></span>'
+        'background:#1f6f4a;border-radius:2px;vertical-align:middle"></span>'
     )
     cuadro_p = (
         '<span style="display:inline-block;width:12px;height:12px;'
@@ -470,13 +496,22 @@ def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
         'background:#e74c3c;border-radius:2px;vertical-align:middle"></span>'
     )
     leyenda = (
-        '<div style="display:flex;gap:16px;font-size:12px;color:#555">'
+        '<div style="display:flex;gap:16px;font-size:12px;color:var(--cl-muted)">'
         + cuadro_n + " Normal&nbsp;&nbsp;"
         + cuadro_p + " Precaución&nbsp;&nbsp;"
         + cuadro_a + " Alerta"
         + "</div>"
     )
     return grid_html + leyenda
+
+
+def _chips_html(items: list[tuple[str, str]]) -> str:
+    """Fila de chips: items = [(label, valor_html), ...]"""
+    html = ['<div class="cl-chips">']
+    for label, valor in items:
+        html.append(f'<div class="cl-chip"><div class="k">{label}</div><div class="v">{valor}</div></div>')
+    html.append('</div>')
+    return "".join(html)
 
 
 def _lluvia_acumulada(proxy: pd.DataFrame) -> tuple[float, float, float, str]:
@@ -505,8 +540,6 @@ def _lluvia_acumulada(proxy: pd.DataFrame) -> tuple[float, float, float, str]:
 # ── vista pública ─────────────────────────────────────────────────────────────
 
 def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
-    st.header("Estado actual de la quebrada")
-
     ultima = log.iloc[-1]
     estado_actual = str(ultima["estado"])
     proba_actual = float(ultima["proba_alerta"])
@@ -518,130 +551,198 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
         "Sep", "sep"
     ).replace("Oct", "oct").replace("Nov", "nov").replace("Dec", "dic")
 
-    # ── Banner público con semáforo, probabilidad y línea de acción ──────────
-    st.markdown(
-        _banner_publico_html(estado_actual, proba_actual, ultima_ts_str),
-        unsafe_allow_html=True,
-    )
-    st.divider()
+    # 1. Hero (reemplaza banner + tarjeta de probabilidad)
+    st.markdown(_hero_html(estado_actual, proba_actual, ultima_ts_str), unsafe_allow_html=True)
 
-    # ── Tarjetas de lluvia acumulada ─────────────────────────────────────────
+    # 2. Fila de chips con datos reales
+    ult_24h, ult_30d, anio_mm, _ = _lluvia_acumulada(proxy)
+    # Días con alerta en últimos 30 días
+    corte_30d = ultima["timestamp"] - pd.Timedelta(days=30)
+    log_30d = log[log["timestamp"] >= corte_30d]
+    dias_alerta_30d = log_30d[log_30d["estado"] == "ALERTA"]["timestamp"].dt.date.nunique()
+
+    chips = [
+        ("Estado", _pill(estado_actual)),
+        ("Probabilidad", f"{proba_actual:.1%}"),
+        ("Lluvia 24 h", f"{ult_24h:.1f} mm"),
+        ("Última lectura", ultima_ts_str),
+        ("Días con alerta (30 d)", str(dias_alerta_30d)),
+    ]
+    st.markdown(_chips_html(chips), unsafe_allow_html=True)
+
+    # 3. Layout 2 columnas: Mapa + Últimos días con alertas
+    col_izq, col_der = st.columns([2, 1])
+
+    with col_izq:
+        with st.container(border=True, key="card-mapa"):
+            st.subheader("Mapa de la quebrada y sus puntos de monitoreo")
+            nodos = interpolar_nodos(ANCLAS, N_NODOS)
+            mostrar_mapa(ANCLAS, nodos, estado_actual)
+            st.caption(
+                "Recorrido de la quebrada de la parte alta a la baja. Posiciones "
+                "ilustrativas, no son GPS de campo."
+            )
+
+    with col_der:
+        with st.container(border=True, key="card-alertas"):
+            st.subheader("Últimos días con alertas")
+            # Agrupar por fecha, tomar días con estado != NORMAL
+            estado_map = {"NORMAL": 0, "PRECAUCIÓN": 1, "ALERTA": 2}
+            dia_estado = (
+                log.groupby(log["timestamp"].dt.date)["estado"]
+                .apply(lambda s: max((estado_map.get(e, 0) for e in s), default=0))
+            )
+            dias_con_evento = [
+                (d, e) for d, e in dia_estado.items() if e != 0
+            ]
+            dias_con_evento.sort(reverse=True)
+            if dias_con_evento:
+                items_html = []
+                for d, nivel in dias_con_evento[:6]:
+                    est = {0: "NORMAL", 1: "PRECAUCIÓN", 2: "ALERTA"}[nivel]
+                    ui = ESTADO_UI[est]
+                    # probabilidad máxima del día
+                    mask_dia = log["timestamp"].dt.date == d
+                    proba_max = float(log[mask_dia]["proba_alerta"].max())
+                    fecha_str = d.strftime("%d-%b").replace(
+                        "Jan", "ene"
+                    ).replace("Feb", "feb").replace("Mar", "mar").replace("Apr", "abr").replace(
+                        "May", "may"
+                    ).replace("Jun", "jun").replace("Jul", "jul").replace("Aug", "ago").replace(
+                        "Sep", "sep"
+                    ).replace("Oct", "oct").replace("Nov", "nov").replace("Dec", "dic")
+                    items_html.append(f"""
+<div class="cl-item">
+  <span style="font-size:12px;color:var(--cl-muted)">{fecha_str}</span>
+  <span>{_pill(est)}</span>
+  <div class="cl-bar"><span style="width:{proba_max*100:.0f}%;background:{ui['color']}"></span></div>
+  <span style="font-size:13px;font-weight:600;color:{ui['pill_txt']}">{proba_max:.0%}</span>
+</div>""")
+                st.markdown("".join(items_html), unsafe_allow_html=True)
+            else:
+                st.write("Sin precauciones ni alertas en el periodo.")
+            st.caption(
+                "Días recientes en que el sistema dio precaución o alerta. La "
+                "barra es la probabilidad más alta de ese día."
+            )
+
+    # 4. Lluvia acumulada: 3 tarjetas con _tarjeta_html
     st.subheader("Lluvia acumulada")
-    ult_24h, ult_30d, anio_mm, ref_fecha = _lluvia_acumulada(proxy)
     st.markdown(
-        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:8px">'
-        + _tarjeta_html("🌧️", "Últimas 24 horas", f"{ult_24h:.1f}", "mm")
+        _tarjeta_html("🌧️", "Últimas 24 horas", f"{ult_24h:.1f}", "mm")
         + _tarjeta_html("📅", "Últimos 30 días", f"{ult_30d:.1f}", "mm")
-        + _tarjeta_html("📆", "Año en curso", f"{anio_mm:.1f}", "mm")
-        + "</div>",
+        + _tarjeta_html("📆", "Año en curso", f"{anio_mm:.1f}", "mm"),
         unsafe_allow_html=True,
     )
     st.caption(
         "Cuánta lluvia ha caído en la cuenca. Más lluvia acumulada significa suelo "
         "más saturado y mayor riesgo."
     )
-    st.divider()
 
-    # ── Mapa de la quebrada ──────────────────────────────────────────────────
-    st.subheader("Mapa de la quebrada y sus puntos de monitoreo")
-    nodos = interpolar_nodos(ANCLAS, N_NODOS)
-    mostrar_mapa(ANCLAS, nodos, estado_actual)
-    st.caption(
-        "Recorrido de la quebrada de la parte alta a la baja. Posiciones "
-        "ilustrativas, no son GPS de campo."
-    )
-    st.divider()
-
-    # ── Historial de los últimos 90 días ─────────────────────────────────────
+    # 5. Historial de los últimos 90 días
     st.subheader("Historial de los últimos 90 días")
-    st.markdown(
-        _calendario_html(log, n_dias=90),
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True, key="card-calendario"):
+        st.markdown(_calendario_html(log, n_dias=90), unsafe_allow_html=True)
     st.caption(
         "Cada cuadro es un día. Verde: sin alertas. Amarillo: hubo "
         "precaución. Rojo: hubo alerta."
     )
 
 
+def _estilo_plotly(fig: go.Figure) -> go.Figure:
+    """Aplica tema oscuro a un figure de Plotly."""
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#e8ecf1"),
+        xaxis=dict(gridcolor="rgba(255,255,255,.06)", zerolinecolor="rgba(255,255,255,.06)"),
+        yaxis=dict(gridcolor="rgba(255,255,255,.06)", zerolinecolor="rgba(255,255,255,.06)"),
+        margin=dict(l=50, r=30, t=50, b=50),
+    )
+    return fig
+
+
 # ── helpers de Vista Operador ────────────────────────────────────────────────
 
 def _grafico_historico(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
-    st.subheader("📈 Comportamiento histórico de la cuenca")
-    st.caption(
-        "Azul: lluvia. Morado: agua que escurre hacia la quebrada. "
-        "Puntos amarillos y rojos: momentos en que el sistema dio precaución o alerta."
-    )
+    with st.container(border=True, key="card-historial"):
+        st.subheader("📈 Comportamiento histórico de la cuenca")
+        st.caption(
+            "Azul: lluvia. Morado: agua que escurre hacia la quebrada. "
+            "Puntos amarillos y rojos: momentos en que el sistema dio precaución o alerta."
+        )
 
-    fecha_min = proxy["timestamp"].dt.date.min()
-    fecha_max = proxy["timestamp"].dt.date.max()
-    valor_inicial = (fecha_max - pd.Timedelta(days=90), fecha_max)
+        fecha_min = proxy["timestamp"].dt.date.min()
+        fecha_max = proxy["timestamp"].dt.date.max()
+        valor_inicial = (fecha_max - pd.Timedelta(days=90), fecha_max)
 
-    rango = st.date_input(
-        "Rango de fechas",
-        value=valor_inicial,
-        min_value=fecha_min,
-        max_value=fecha_max,
-        key="rango_historico_op",
-    )
+        rango = st.date_input(
+            "Rango de fechas",
+            value=valor_inicial,
+            min_value=fecha_min,
+            max_value=fecha_max,
+            key="rango_historico_op",
+        )
 
-    if not (isinstance(rango, (list, tuple)) and len(rango) == 2):
-        st.info("Seleccionar fecha de inicio y fin del rango.")
-        return
+        if not (isinstance(rango, (list, tuple)) and len(rango) == 2):
+            st.info("Seleccionar fecha de inicio y fin del rango.")
+            return
 
-    fecha_ini, fecha_fin = rango
-    mask_proxy = (
-        (proxy["timestamp"].dt.date >= fecha_ini)
-        & (proxy["timestamp"].dt.date <= fecha_fin)
-    )
-    proxy_rango = proxy[mask_proxy].copy()
-    mask_log = (
-        (log["timestamp"].dt.date >= fecha_ini)
-        & (log["timestamp"].dt.date <= fecha_fin)
-    )
-    precauciones = log[mask_log & (log["estado"] == "PRECAUCIÓN")].copy()
-    alertas = log[mask_log & (log["estado"] == "ALERTA")].copy()
+        fecha_ini, fecha_fin = rango
+        mask_proxy = (
+            (proxy["timestamp"].dt.date >= fecha_ini)
+            & (proxy["timestamp"].dt.date <= fecha_fin)
+        )
+        proxy_rango = proxy[mask_proxy].copy()
+        mask_log = (
+            (log["timestamp"].dt.date >= fecha_ini)
+            & (log["timestamp"].dt.date <= fecha_fin)
+        )
+        precauciones = log[mask_log & (log["estado"] == "PRECAUCIÓN")].copy()
+        alertas = log[mask_log & (log["estado"] == "ALERTA")].copy()
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=proxy_rango["timestamp"], y=proxy_rango["P_basin"],
-        name="Lluvia en la cuenca (mm/h)", line=dict(color="#2980b9", width=1),
-    ))
-    fig.add_trace(go.Scatter(
-        x=proxy_rango["timestamp"], y=proxy_rango["Q_scs_proxy"],
-        name="Escorrentía estimada (mm)", line=dict(color="#8e44ad", width=1), yaxis="y2",
-    ))
-    if not precauciones.empty:
+        fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=precauciones["timestamp"], y=precauciones["proba_alerta"],
-            mode="markers", name="Precaución",
-            marker=dict(color="#f39c12", size=6, symbol="x"), yaxis="y2",
+            x=proxy_rango["timestamp"], y=proxy_rango["P_basin"],
+            name="Lluvia en la cuenca (mm/h)", line=dict(color="#3498db", width=1),
         ))
-    if not alertas.empty:
         fig.add_trace(go.Scatter(
-            x=alertas["timestamp"], y=alertas["proba_alerta"],
-            mode="markers", name="Alerta",
-            marker=dict(color="#e74c3c", size=6, symbol="x"), yaxis="y2",
+            x=proxy_rango["timestamp"], y=proxy_rango["Q_scs_proxy"],
+            name="Escorrentía estimada (mm)", line=dict(color="#a569bd", width=1), yaxis="y2",
         ))
-        for ts in alertas["timestamp"].iloc[::max(1, len(alertas) // 200)]:
-            fig.add_vline(x=ts, line=dict(color="red", width=0.6, dash="dot"), opacity=0.3)
+        if not precauciones.empty:
+            fig.add_trace(go.Scatter(
+                x=precauciones["timestamp"], y=precauciones["proba_alerta"],
+                mode="markers", name="Precaución",
+                marker=dict(color="#f39c12", size=6, symbol="x"), yaxis="y2",
+            ))
+        if not alertas.empty:
+            fig.add_trace(go.Scatter(
+                x=alertas["timestamp"], y=alertas["proba_alerta"],
+                mode="markers", name="Alerta",
+                marker=dict(color="#e74c3c", size=6, symbol="x"), yaxis="y2",
+            ))
+            for ts in alertas["timestamp"].iloc[::max(1, len(alertas) // 200)]:
+                fig.add_vline(x=ts, line=dict(color="rgba(231,76,60,.5)", width=0.6, dash="dot"), opacity=0.3)
 
-    fig.update_layout(
-        title="Lluvia, escorrentía y alertas",
-        xaxis=dict(title="Fecha"),
-        yaxis=dict(title=dict(text="Lluvia en la cuenca (mm/h)", font=dict(color="#2980b9"))),
-        yaxis2=dict(
-            title=dict(text="Escorrentía estimada / probabilidad", font=dict(color="#8e44ad")),
-            overlaying="y", side="right",
-        ),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        height=480,
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    st.caption(
-        f"En este período: {len(alertas)} alertas y {len(precauciones)} precauciones. "
-        "Las líneas verticales se muestran submuestreadas para rendimiento."
-    )
+        fig.update_layout(
+            title="Lluvia, escorrentía y alertas",
+            xaxis=dict(title="Fecha"),
+            yaxis=dict(title=dict(text="Lluvia en la cuenca (mm/h)", font=dict(color="#3498db"))),
+            yaxis2=dict(
+                title=dict(text="Escorrentía estimada / probabilidad", font=dict(color="#a569bd")),
+                overlaying="y", side="right",
+            ),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            height=480,
+        )
+        _estilo_plotly(fig)
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption(
+            f"En este período: {len(alertas)} alertas y {len(precauciones)} precauciones. "
+            "Las líneas verticales se muestran submuestreadas para rendimiento."
+        )
 
 
 # ── vista operador ────────────────────────────────────────────────────────────
@@ -650,146 +751,156 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
     st.header("🛠️ Vista operador (JAC)")
 
     # 1. Registro de lecturas recientes
-    st.subheader("📋 Registro de lecturas recientes")
-    st.caption(
-        "Las últimas 100 lecturas horarias del sistema. Cada fila muestra qué se midió "
-        "y qué estado calculó."
-    )
-    log_mostrar = log.tail(100).rename(columns=NOMBRES_LEGIBLES)
-    st.dataframe(log_mostrar, use_container_width=True)
-    st.divider()
+    with st.container(border=True, key="card-registro"):
+        st.subheader("📋 Registro de lecturas recientes")
+        st.caption(
+            "Las últimas 100 lecturas horarias del sistema. Cada fila muestra qué se midió "
+            "y qué estado calculó."
+        )
+        log_mostrar = log.tail(100).rename(columns=NOMBRES_LEGIBLES)
+        # Colorear columna Estado de alerta con pandas Styler
+        try:
+            def color_estado(val):
+                if val == "ALERTA":
+                    return "color: #ff6b5e; font-weight: 600"
+                elif val == "PRECAUCIÓN":
+                    return "color: #f5b041; font-weight: 600"
+                elif val == "NORMAL":
+                    return "color: #34d27b; font-weight: 600"
+                return ""
+            styled = log_mostrar.style.map(color_estado, subset=["Estado de alerta"])
+            st.dataframe(styled, use_container_width=True)
+        except Exception:
+            st.dataframe(log_mostrar, use_container_width=True)
 
     # 2. Comportamiento histórico de la cuenca
     _grafico_historico(log, proxy)
-    st.divider()
 
     # 3. Confiabilidad del sistema
-    st.subheader("🎯 Confiabilidad del sistema")
-    st.caption(
-        "Detectadas = de cada 100 crecientes reales, cuántas avisó el sistema. "
-        "Alertas reales = de cada 100 avisos, cuántos fueron crecientes de verdad. "
-        "Calculado sobre el periodo de prueba (2025-07-06 → 2026-09-30, 9,051 horas), "
-        "que el modelo no vio al entrenar. No se recalcula en vivo — "
-        "fuente: simulate/10_metricas_ternario.py."
-    )
-    # Métricas calculadas por simulate/10_metricas_ternario.py
-    RECALL_PRECAUCION = 0.714628
-    PRECISION_PRECAUCION = 0.497496
-    RECALL_ALERTA = 0.549161
-    PRECISION_ALERTA = 0.860902
+    with st.container(border=True, key="card-confiabilidad"):
+        st.subheader("🎯 Confiabilidad del sistema")
+        st.caption(
+            "Detectadas = de cada 100 crecientes reales, cuántas avisó el sistema. "
+            "Alertas reales = de cada 100 avisos, cuántos fueron crecientes de verdad. "
+            "Calculado sobre el periodo de prueba (2025-07-06 → 2026-09-30, 9,051 horas), "
+            "que el modelo no vio al entrenar. No se recalcula en vivo — "
+            "fuente: simulate/10_metricas_ternario.py."
+        )
+        RECALL_PRECAUCION = 0.714628
+        PRECISION_PRECAUCION = 0.497496
+        RECALL_ALERTA = 0.549161
+        PRECISION_ALERTA = 0.860902
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.metric(
-            "Crecientes detectadas (desde precaución)",
-            f"{RECALL_PRECAUCION:.1%}",
-            help="Recall con umbral 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
-        )
-        st.metric(
-            "Crecientes detectadas (solo alerta roja)",
-            f"{RECALL_ALERTA:.1%}",
-            help="Recall con umbral 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
-        )
-    with c2:
-        st.metric(
-            "Alertas que fueron reales (desde precaución)",
-            f"{PRECISION_PRECAUCION:.1%}",
-            help="Precisión con umbral 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
-        )
-        st.metric(
-            "Alertas rojas que fueron reales",
-            f"{PRECISION_ALERTA:.1%}",
-            help="Precisión con umbral 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
-        )
-    st.divider()
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric(
+                "Crecientes detectadas (desde precaución)",
+                f"{RECALL_PRECAUCION:.1%}",
+                help="Recall con umbral 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
+            )
+            st.metric(
+                "Crecientes detectadas (solo alerta roja)",
+                f"{RECALL_ALERTA:.1%}",
+                help="Recall con umbral 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
+            )
+        with c2:
+            st.metric(
+                "Alertas que fueron reales (desde precaución)",
+                f"{PRECISION_PRECAUCION:.1%}",
+                help="Precisión con umbral 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
+            )
+            st.metric(
+                "Alertas rojas que fueron reales",
+                f"{PRECISION_ALERTA:.1%}",
+                help="Precisión con umbral 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
+            )
 
     # 4. Qué factores pesan más en la alerta
-    st.subheader("🔍 ¿Qué factores pesan más en la alerta?")
-    st.caption(
-        "La lluvia acumulada de las últimas 24–48 horas es la señal más importante. "
-        "Un aguacero puntual sin antecedentes genera menos riesgo que lluvia "
-        "sostenida por días."
-    )
-    try:
-        importancias = dict(zip(FEATURE_COLS, modelo.feature_importances_))
-        df_imp = (
-            pd.DataFrame(
-                {"feature": list(importancias.keys()), "importance": list(importancias.values())}
-            )
-            .sort_values("importance", ascending=True)
+    with st.container(border=True, key="card-factores"):
+        st.subheader("🔍 ¿Qué factores pesan más en la alerta?")
+        st.caption(
+            "La lluvia acumulada de las últimas 24–48 horas es la señal más importante. "
+            "Un aguacero puntual sin antecedentes genera menos riesgo que lluvia "
+            "sostenida por días."
         )
-        # Renombrar features para la visualización
-        df_imp["feature_legible"] = df_imp["feature"].map(NOMBRES_LEGIBLES).fillna(df_imp["feature"])
-        fig_imp = go.Figure(go.Bar(
-            x=df_imp["importance"],
-            y=df_imp["feature_legible"],
-            orientation="h",
-            marker_color="#2980b9",
-        ))
-        fig_imp.update_layout(
-            height=500,
-            title="Peso de cada factor en la decisión del modelo",
-            margin=dict(l=220),
-            xaxis_title="Importancia relativa",
-        )
-        st.plotly_chart(fig_imp, use_container_width=True)
-        with st.expander("Detalle técnico"):
-            st.write(
-                "Modelo: RandomForestClassifier(n_estimators=200, random_state=42, "
-                "class_weight='balanced') — archivo: simulate/models/clf_6h.joblib"
+        try:
+            importancias = dict(zip(FEATURE_COLS, modelo.feature_importances_))
+            df_imp = (
+                pd.DataFrame(
+                    {"feature": list(importancias.keys()), "importance": list(importancias.values())}
+                )
+                .sort_values("importance", ascending=True)
             )
-            st.write("Features usadas:", ", ".join(FEATURE_COLS))
-    except Exception as exc:
-        st.warning(f"No se pudo graficar importancias: {exc}")
-
-    st.divider()
+            df_imp["feature_legible"] = df_imp["feature"].map(NOMBRES_LEGIBLES).fillna(df_imp["feature"])
+            fig_imp = go.Figure(go.Bar(
+                x=df_imp["importance"],
+                y=df_imp["feature_legible"],
+                orientation="h",
+                marker_color="#3498db",
+            ))
+            fig_imp.update_layout(
+                height=500,
+                title="Peso de cada factor en la decisión del modelo",
+                margin=dict(l=220),
+                xaxis_title="Importancia relativa",
+            )
+            _estilo_plotly(fig_imp)
+            st.plotly_chart(fig_imp, use_container_width=True)
+            with st.expander("Detalle técnico"):
+                st.write(
+                    "Modelo: RandomForestClassifier(n_estimators=200, random_state=42, "
+                    "class_weight='balanced') — archivo: simulate/models/clf_6h.joblib"
+                )
+                st.write("Features usadas:", ", ".join(FEATURE_COLS))
+        except Exception as exc:
+            st.warning(f"No se pudo graficar importancias: {exc}")
 
     # 5. Consultar un momento específico
-    st.subheader("🔎 Consultar un momento específico")
-    st.caption(
-        "Elegí una fecha y hora para ver qué datos recibió el sistema en ese momento "
-        "y qué estado calculó."
-    )
-    fecha_min_log = log["timestamp"].dt.date.min()
-    fecha_max_log = log["timestamp"].dt.date.max()
+    with st.container(border=True, key="card-consulta"):
+        st.subheader("🔎 Consultar un momento específico")
+        st.caption(
+            "Elegí una fecha y hora para ver qué datos recibió el sistema en ese momento "
+            "y qué estado calculó."
+        )
+        fecha_min_log = log["timestamp"].dt.date.min()
+        fecha_max_log = log["timestamp"].dt.date.max()
 
-    fecha_sel = st.date_input(
-        "Seleccionar fecha",
-        value=fecha_max_log,
-        min_value=fecha_min_log,
-        max_value=fecha_max_log,
-        key="fecha_inspeccion",
-    )
-    log_dia = log[log["timestamp"].dt.date == fecha_sel].copy()
+        fecha_sel = st.date_input(
+            "Seleccionar fecha",
+            value=fecha_max_log,
+            min_value=fecha_min_log,
+            max_value=fecha_max_log,
+            key="fecha_inspeccion",
+        )
+        log_dia = log[log["timestamp"].dt.date == fecha_sel].copy()
 
-    if log_dia.empty:
-        st.warning("Sin datos en el log para esta fecha.")
-        return
+        if log_dia.empty:
+            st.warning("Sin datos en el log para esta fecha.")
+            return
 
-    opciones_hora = log_dia["timestamp"].dt.strftime("%H:%M").tolist()
-    hora_sel = st.selectbox("Hora (hora local)", opciones_hora, key="hora_inspeccion")
+        opciones_hora = log_dia["timestamp"].dt.strftime("%H:%M").tolist()
+        hora_sel = st.selectbox("Hora (hora local)", opciones_hora, key="hora_inspeccion")
 
-    fila = log_dia[log_dia["timestamp"].dt.strftime("%H:%M") == hora_sel].iloc[0]
+        fila = log_dia[log_dia["timestamp"].dt.strftime("%H:%M") == hora_sel].iloc[0]
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.markdown(f"**Fecha y hora:** `{fila['timestamp']}`")
-        st.markdown(f"**Estado de alerta:** `{fila['estado']}`")
-        st.markdown(f"**Probabilidad de creciente:** `{fila['proba_alerta']:.4f}`")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown(f"**Fecha y hora:** `{fila['timestamp']}`")
+            st.markdown(f"**Estado de alerta:** `{fila['estado']}`")
+            st.markdown(f"**Probabilidad de creciente:** `{fila['proba_alerta']:.4f}`")
 
-    with col_b:
-        cols_mostrar = [c for c in ["P_basin", "Q_actual", "Q_lag_1h", "roll_sum_24h", "hora_dia", "mes"]
-                        if c in fila.index]
-        if cols_mostrar:
-            df_vals = pd.DataFrame([{c: round(float(fila[c]), 6) for c in cols_mostrar}])
-            df_vals = df_vals.T.rename(columns={0: "Valor"})
-            df_vals.index = [NOMBRES_LEGIBLES.get(idx, idx) for idx in df_vals.index]
-            st.dataframe(df_vals, use_container_width=True)
-
-    st.divider()
+        with col_b:
+            cols_mostrar = [c for c in ["P_basin", "Q_actual", "Q_lag_1h", "roll_sum_24h", "hora_dia", "mes"]
+                            if c in fila.index]
+            if cols_mostrar:
+                df_vals = pd.DataFrame([{c: round(float(fila[c]), 6) for c in cols_mostrar}])
+                df_vals = df_vals.T.rename(columns={0: "Valor"})
+                df_vals.index = [NOMBRES_LEGIBLES.get(idx, idx) for idx in df_vals.index]
+                st.dataframe(df_vals, use_container_width=True)
 
     # 6. Simulador
-    _simulador_modelo(modelo)
+    with st.container(border=True, key="card-simulador"):
+        _simulador_modelo(modelo)
 
 
 # ── simulador interactivo del modelo ─────────────────────────────────────────
@@ -881,45 +992,34 @@ def _simulador_modelo(modelo) -> None:
 
 CSS_GLOBAL = """
 <style>
-.metric-card {
-    background: rgba(255,255,255,.05);
-    border: 1px solid rgba(0,0,0,.08);
-    border-radius: 12px;
-    padding: 18px 20px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.08);
-}
-.metric-value {
-    font-size: clamp(28px, 5vw, 40px);
-    font-weight: 600;
-    line-height: 1.1;
-    margin: 4px 0;
-}
-.metric-label {
-    font-size: 13px;
-    color: #777;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    margin-bottom: 2px;
-}
-div[data-testid="stMetric"] {
-    border-radius: 12px;
-    padding: 12px 16px;
-    background: rgba(255,255,255,.03);
-    border: 1px solid rgba(0,0,0,.06);
-}
-div[data-testid="stDataFrame"] {
-    border-radius: 12px;
-    overflow: hidden;
-}
-section.main > div.block-container {
-    padding-top: 1.5rem;
-}
-h2 { font-weight: 600 !important; margin-top: 1.5rem; margin-bottom: 0.75rem; }
-h3 { font-weight: 600 !important; margin-top: 1.25rem; margin-bottom: 0.5rem; }
-div[data-testid="stExpander"] details {
-    border-radius: 10px !important;
-    border: 1px solid rgba(0,0,0,.08) !important;
-}
+:root{--cl-bg:#0b0d11;--cl-card:#13171d;--cl-border:rgba(255,255,255,.08);
+--cl-text:#e8ecf1;--cl-muted:#8b95a5;--cl-accent:#3498db;
+--cl-ok:#2ecc71;--cl-warn:#f39c12;--cl-danger:#e74c3c}
+[data-testid="stMainBlockContainer"]{padding-top:1.5rem;max-width:1400px}
+h2,h3{font-weight:600!important;letter-spacing:-.01em}
+.cl-card{background:var(--cl-card);border:1px solid var(--cl-border);border-radius:16px;padding:18px 20px}
+[class*="st-key-card-"]{background:var(--cl-card);border-radius:16px}
+.cl-chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:8px 0 16px}
+.cl-chip{background:var(--cl-card);border:1px solid var(--cl-border);border-radius:12px;padding:10px 14px}
+.cl-chip .k{font-size:11px;color:var(--cl-muted);text-transform:uppercase;letter-spacing:.06em}
+.cl-chip .v{font-size:20px;font-weight:600;margin-top:2px}
+.cl-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap}
+.cl-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.cl-hero{background:var(--cl-card);border:1px solid var(--cl-border);border-left:4px solid var(--c);border-radius:16px;padding:22px 24px}
+.cl-hero .title{font-size:clamp(20px,3vw,30px);font-weight:700;letter-spacing:.02em;margin:8px 0 4px}
+.cl-hero .action{color:var(--cl-muted);font-size:16px}
+.cl-gauge{position:relative;display:flex;height:10px;margin:18px 0 6px}
+.cl-gauge .mk{position:absolute;top:-4px;width:4px;height:18px;border-radius:2px;background:#fff;transform:translateX(-50%)}
+.cl-gauge-lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--cl-muted)}
+.cl-item{display:grid;grid-template-columns:64px auto 1fr 46px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--cl-border)}
+.cl-bar{height:6px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.cl-bar>span{display:block;height:100%;border-radius:999px}
+.cl-stat .k{font-size:12px;color:var(--cl-muted);text-transform:uppercase;letter-spacing:.06em}
+.cl-stat .v{font-size:clamp(26px,4vw,36px);font-weight:600;line-height:1.1;margin:4px 0}
+.cl-stat .u{font-size:12px;color:var(--cl-muted)}
+[data-testid="stMetric"]{background:var(--cl-card);border:1px solid var(--cl-border);border-radius:12px;padding:12px 16px}
+[data-testid="stDataFrame"]{border-radius:12px;overflow:hidden}
+[data-testid="stExpander"] details{border-radius:12px!important;border:1px solid var(--cl-border)!important;background:var(--cl-card)}
 </style>
 """
 
@@ -935,36 +1035,33 @@ _LOGO_SVG = (
 _LOGO_B64 = base64.b64encode(_LOGO_SVG.encode("utf-8")).decode("ascii")
 
 
-def _badge_estado(estado: str) -> str:
-    """Genera el HTML del badge dinámico según el estado."""
-    if estado == "ALERTA":
-        bg, txt, dot = "#fde8e6", "#a02a1f", "#e74c3c"
-        label = "ALERTA"
-    elif estado == "PRECAUCIÓN":
-        bg, txt, dot = "#fdf2dc", "#8a5a00", "#f39c12"
-        label = "PRECAUCIÓN"
-    else:
-        bg, txt, dot = "#e6f7ee", "#1e7a46", "#2ecc71"
-        label = "NORMAL"
+def _pill(estado: str) -> str:
+    """Genera una pill de estado usando ESTADO_UI."""
+    ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
     return (
-        f'<span style="display:inline-flex;align-items:center;gap:6px;'
-        f'padding:5px 14px;border-radius:999px;font-size:12px;white-space:nowrap;'
-        f'background:{bg};color:{txt}">'
-        f'<span style="width:8px;height:8px;border-radius:50%;background:{dot}"></span>'
-        f'Prototipo activo · {label}</span>'
+        f'<span class="cl-pill" style="background:{ui["soft"]};color:{ui["pill_txt"]}">'
+        f'<span class="cl-dot" style="background:{ui["color"]}"></span>{estado}</span>'
+    )
+
+
+def _badge_estado(estado: str) -> str:
+    """Genera una pill de estado con texto 'Prototipo activo · {estado}'."""
+    ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
+    return (
+        f'<span class="cl-pill" style="background:{ui["soft"]};color:{ui["pill_txt"]}">'
+        f'<span class="cl-dot" style="background:{ui["color"]}"></span>'
+        f'Prototipo activo · {estado}</span>'
     )
 
 
 def _badge_fijo(texto: str, bg: str, color: str) -> str:
     return (
-        f'<span style="display:inline-flex;align-items:center;'
-        f'padding:5px 14px;border-radius:999px;font-size:12px;white-space:nowrap;'
-        f'background:{bg};color:{color}">{texto}</span>'
+        f'<span class="cl-pill" style="background:{bg};color:{color}">{texto}</span>'
     )
 
 
 def render_header(estado: str, ultima_lectura: str) -> None:
-    """Renderiza el header con logo, título, subtítulos y badges."""
+    """Renderiza el header con logo, título, subtítulos y badges (pills)."""
     st.markdown(
         f"""
 <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">
@@ -976,11 +1073,11 @@ def render_header(estado: str, ultima_lectura: str) -> None:
   </div>
   <hr style="margin:4px 0;border:none;border-top:0.5px solid rgba(128,128,128,0.35)">
   <div style="font-size:16px;font-weight:500">Sistema integrado de vigilancia comunitaria</div>
-  <div style="font-size:14px;opacity:0.7">Quebrada La Honda · Comuna 4 · Medellín</div>
+  <div style="font-size:14px;color:var(--cl-muted)">Quebrada La Honda · Comuna 4 · Medellín</div>
   <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
     {_badge_estado(estado)}
-    {_badge_fijo("Territorio INN 2026 · Reto #7", "#e3f0fa", "#1b5e8c")}
-    {_badge_fijo(f"Datos al {ultima_lectura}", "#eeeeee", "#444")}
+    {_badge_fijo("Territorio INN 2026 · Reto #7", "rgba(52,152,219,.14)", "#6cb4ee")}
+    {_badge_fijo(f"Datos al {ultima_lectura}", "rgba(255,255,255,.06)", "var(--cl-muted)")}
   </div>
 </div>
 """,
@@ -1057,6 +1154,19 @@ def main() -> None:
         )
 
     # Sidebar
+    # Logo + título en sidebar
+    st.sidebar.markdown(
+        f"""
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+  <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="28" height="35" alt="CentineLA logo">
+  <div style="font-size:22px;font-weight:500;letter-spacing:-0.5px;color:#3498db;line-height:1;white-space:nowrap">
+    Centine<span style="color:#e74c3c">LA</span>
+  </div>
+</div>
+<hr style="margin:4px 0;border:none;border-top:0.5px solid rgba(128,128,128,0.35)">
+""",
+        unsafe_allow_html=True,
+    )
     vista = st.sidebar.radio(
         "Seleccionar vista",
         ["Vista Pública", "Vista Operador (JAC)"],
