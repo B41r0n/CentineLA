@@ -364,6 +364,45 @@ def _estado_semaforo_html(estado: str, proba: float) -> str:
     """
 
 
+def _banner_publico_html(estado: str, proba: float, ultima_ts_str: str) -> str:
+    """Banner para la vista pública con textos específicos y línea de acción."""
+    if estado == "ALERTA":
+        bg, emoji, texto = "#e74c3c", "🔴", "ALERTA — RIESGO EN LAS PRÓXIMAS 6 HORAS"
+        accion = "Riesgo de creciente en las próximas 6 horas. Activar protocolo de la JAC."
+    elif estado == "PRECAUCIÓN":
+        bg, emoji, texto = "#f39c12", "🟡", "PRECAUCIÓN — LLUVIAS SOSTENIDAS"
+        accion = "Lluvias sostenidas detectadas. Mantenerse atentos."
+    else:
+        bg, emoji, texto = "#2ecc71", "🟢", "NORMAL"
+        accion = "No hay señales de alerta. Monitoreo activo."
+    color_p = _color_proba(proba)
+    return f"""
+    <div style="margin-bottom:8px">
+      <div style="background:{bg};border-radius:14px;padding:28px 20px;
+                  text-align:center;color:white;font-size:clamp(18px,3vw,26px);
+                  font-weight:700;letter-spacing:.04em;
+                  box-shadow:0 4px 14px rgba(0,0,0,.25)">
+        {emoji}&nbsp;{texto}
+      </div>
+      <div style="margin-top:10px;font-size:16px;color:#333;text-align:center">
+        {accion}
+      </div>
+      <div class="metric-card" style="text-align:center;display:flex;
+                  flex-direction:column;justify-content:center;align-items:center;
+                  margin-top:12px">
+        <div class="metric-label">Probabilidad de creciente</div>
+        <div class="metric-value" style="color:{color_p}">{proba:.1%}</div>
+        <div style="font-size:12px;color:#666;margin-top:4px">
+          Verde menos de 30% · Amarillo 30–70% · Rojo 70% o más
+        </div>
+      </div>
+      <div style="text-align:center;font-size:12px;color:#888;margin-top:8px">
+        Semáforo calculado con la última lectura disponible ({ultima_ts_str}).
+      </div>
+    </div>
+    """
+
+
 def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
     ultima_fecha = log["timestamp"].dt.date.max()
     inicio = ultima_fecha - pd.Timedelta(days=n_dias - 1)
@@ -442,53 +481,62 @@ def _lluvia_acumulada(proxy: pd.DataFrame) -> tuple[float, float, float, str]:
 # ── vista pública ─────────────────────────────────────────────────────────────
 
 def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
-    st.header("Q. La Honda — Estado de alerta en tiempo real")
+    st.header("Estado actual de la quebrada")
 
     ultima = log.iloc[-1]
     estado_actual = str(ultima["estado"])
     proba_actual = float(ultima["proba_alerta"])
+    ultima_ts_str = ultima["timestamp"].strftime("%d-%b-%Y %H:%M").replace(
+        "Jan", "ene"
+    ).replace("Feb", "feb").replace("Mar", "mar").replace("Apr", "abr").replace(
+        "May", "may"
+    ).replace("Jun", "jun").replace("Jul", "jul").replace("Aug", "ago").replace(
+        "Sep", "sep"
+    ).replace("Oct", "oct").replace("Nov", "nov").replace("Dec", "dic")
 
-    # ── PASO 2: semáforo + probabilidad ────────────────────────────────────
+    # ── Banner público con semáforo, probabilidad y línea de acción ──────────
     st.markdown(
-        _estado_semaforo_html(estado_actual, proba_actual),
+        _banner_publico_html(estado_actual, proba_actual, ultima_ts_str),
         unsafe_allow_html=True,
-    )
-    st.caption(
-        f"Última lectura disponible: **{ultima['timestamp']}**"
     )
     st.divider()
 
-    # ── PASO 3: tarjetas de lluvia acumulada ───────────────────────────────
+    # ── Tarjetas de lluvia acumulada ─────────────────────────────────────────
     st.subheader("Lluvia acumulada")
     ult_24h, ult_30d, anio_mm, ref_fecha = _lluvia_acumulada(proxy)
     st.markdown(
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:8px">'
-        + _tarjeta_html("🌧️", "Últ. 24 h", f"{ult_24h:.1f}", "mm")
-        + _tarjeta_html("📅", "Últ. 30 días", f"{ult_30d:.1f}", "mm")
+        + _tarjeta_html("🌧️", "Últimas 24 horas", f"{ult_24h:.1f}", "mm")
+        + _tarjeta_html("📅", "Últimos 30 días", f"{ult_30d:.1f}", "mm")
         + _tarjeta_html("📆", "Año en curso", f"{anio_mm:.1f}", "mm")
-        + "</div>"
-        + '<p style="font-size:11px;color:#888;margin-top:0">'
-        + "Ref. histórica: " + ref_fecha
-        + ". Ventanas relativas al último dato disponible — no al reloj del sistema.</p>",
+        + "</div>",
         unsafe_allow_html=True,
+    )
+    st.caption(
+        "Cuánta lluvia ha caído en la cuenca. Más lluvia acumulada significa suelo "
+        "más saturado y mayor riesgo."
     )
     st.divider()
 
-    # ── PASO 4: mapa más grande ────────────────────────────────────────────
-    st.subheader("Mapa de nodos")
+    # ── Mapa de la quebrada ──────────────────────────────────────────────────
+    st.subheader("Mapa de la quebrada y sus puntos de monitoreo")
     nodos = interpolar_nodos(ANCLAS, N_NODOS)
     mostrar_mapa(ANCLAS, nodos, estado_actual)
+    st.caption(
+        "Recorrido de la quebrada de la parte alta a la baja. Posiciones "
+        "ilustrativas, no son GPS de campo."
+    )
     st.divider()
 
-    # ── PASO 5: calendario de alertas (últimos 90 días del log) ───────────
-    st.subheader("Calendario de alertas — últimos 90 días")
+    # ── Historial de los últimos 90 días ─────────────────────────────────────
+    st.subheader("Historial de los últimos 90 días")
     st.markdown(
         _calendario_html(log, n_dias=90),
         unsafe_allow_html=True,
     )
     st.caption(
-        "Cada cuadro = un día. Verde = NORMAL, amarillo = al menos una hora PRECAUCIÓN, "
-        "rojo = al menos una hora ALERTA."
+        "Cada cuadro es un día. Verde: sin alertas. Amarillo: hubo "
+        "precaución. Rojo: hubo alerta."
     )
 
 
