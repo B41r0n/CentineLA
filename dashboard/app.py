@@ -6,6 +6,7 @@ Uso:
     streamlit run dashboard/app.py
 """
 
+import base64
 import io
 import math
 from pathlib import Path
@@ -758,7 +759,7 @@ def _simulador_modelo(modelo) -> None:
         )
 
 
-# ── app principal ─────────────────────────────────────────────────────────────
+# ── estilos globales ───────────────────────────────────────────────────────────
 
 CSS_GLOBAL = """
 <style>
@@ -782,18 +783,100 @@ CSS_GLOBAL = """
     letter-spacing: .06em;
     margin-bottom: 2px;
 }
+div[data-testid="stMetric"] {
+    border-radius: 12px;
+    padding: 12px 16px;
+    background: rgba(255,255,255,.03);
+    border: 1px solid rgba(0,0,0,.06);
+}
+div[data-testid="stDataFrame"] {
+    border-radius: 12px;
+    overflow: hidden;
+}
+section.main > div.block-container {
+    padding-top: 1.5rem;
+}
+h2 { font-weight: 600 !important; margin-top: 1.5rem; margin-bottom: 0.75rem; }
+h3 { font-weight: 600 !important; margin-top: 1.25rem; margin-bottom: 0.5rem; }
+div[data-testid="stExpander"] details {
+    border-radius: 10px !important;
+    border: 1px solid rgba(0,0,0,.08) !important;
+}
 </style>
 """
+
+# ── logo SVG en base64 ──────────────────────────────────────────────────────────
+_LOGO_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="44" height="56" viewBox="0 0 44 56">'
+    '<path d="M22 2 C22 2 4 24 4 38 C4 48 12 54 22 54 C32 54 40 48 40 38 C40 24 22 2 22 2 Z" fill="#3498db"/>'
+    '<ellipse cx="15" cy="30" rx="3.5" ry="7" fill="#ffffff" opacity="0.28" transform="rotate(-15 15 30)"/>'
+    '<path d="M16 40 Q22 34 28 40" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.9"/>'
+    '<path d="M12 45 Q22 35 32 45" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" opacity="0.55"/>'
+    '</svg>'
+)
+_LOGO_B64 = base64.b64encode(_LOGO_SVG.encode("utf-8")).decode("ascii")
+
+
+def _badge_estado(estado: str) -> str:
+    """Genera el HTML del badge dinámico según el estado."""
+    if estado == "ALERTA":
+        bg, txt, dot = "#fde8e6", "#a02a1f", "#e74c3c"
+        label = "ALERTA"
+    elif estado == "PRECAUCIÓN":
+        bg, txt, dot = "#fdf2dc", "#8a5a00", "#f39c12"
+        label = "PRECAUCIÓN"
+    else:
+        bg, txt, dot = "#e6f7ee", "#1e7a46", "#2ecc71"
+        label = "NORMAL"
+    return (
+        f'<span style="display:inline-flex;align-items:center;gap:6px;'
+        f'padding:5px 14px;border-radius:999px;font-size:12px;white-space:nowrap;'
+        f'background:{bg};color:{txt}">'
+        f'<span style="width:8px;height:8px;border-radius:50%;background:{dot}"></span>'
+        f'Prototipo activo · {label}</span>'
+    )
+
+
+def _badge_fijo(texto: str, bg: str, color: str) -> str:
+    return (
+        f'<span style="display:inline-flex;align-items:center;'
+        f'padding:5px 14px;border-radius:999px;font-size:12px;white-space:nowrap;'
+        f'background:{bg};color:{color}">{texto}</span>'
+    )
+
+
+def render_header(estado: str, ultima_lectura: str) -> None:
+    """Renderiza el header con logo, título, subtítulos y badges."""
+    st.markdown(
+        f"""
+<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">
+  <div style="display:flex;align-items:center;gap:8px">
+    <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="44" height="56" alt="CentineLA logo">
+    <div style="font-size:44px;font-weight:500;letter-spacing:-1px;color:#3498db;line-height:1;white-space:nowrap">
+      Centine<span style="color:#e74c3c">LA</span>
+    </div>
+  </div>
+  <hr style="margin:4px 0;border:none;border-top:0.5px solid rgba(128,128,128,0.35)">
+  <div style="font-size:16px;font-weight:500">Sistema integrado de vigilancia comunitaria</div>
+  <div style="font-size:14px;opacity:0.7">Quebrada La Honda · Comuna 4 · Medellín</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
+    {_badge_estado(estado)}
+    {_badge_fijo("Territorio INN 2026 · Reto #7", "#e3f0fa", "#1b5e8c")}
+    {_badge_fijo(f"Datos al {ultima_lectura}", "#eeeeee", "#444")}
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
 
 def main() -> None:
     st.set_page_config(
-        page_title="CentineLA — Alerta Q. La Honda",
+        page_title="CentineLA — Vigilancia comunitaria · Q. La Honda",
         page_icon="💧",
         layout="wide",
     )
     st.markdown(CSS_GLOBAL, unsafe_allow_html=True)
-    st.title("💧 CentineLA — Alerta temprana de crecientes súbitas | Q. La Honda")
 
     with st.spinner("Cargando datos..."):
         try:
@@ -814,11 +897,55 @@ def main() -> None:
             st.warning(f"Modelo no encontrado en `{MODEL_PATH}`. Vista Operador limitada.")
             modelo = None
 
+    # Header con logo y badges
+    ultima = log.iloc[-1]
+    estado_actual = str(ultima["estado"])
+    ultima_fecha_str = ultima["timestamp"].strftime("%d-%b-%Y").replace(
+        "Jan", "ene"
+    ).replace("Feb", "feb").replace("Mar", "mar").replace("Apr", "abr").replace(
+        "May", "may"
+    ).replace("Jun", "jun").replace("Jul", "jul").replace("Aug", "ago").replace(
+        "Sep", "sep"
+    ).replace("Oct", "oct").replace("Nov", "nov").replace("Dec", "dic")
+    render_header(estado_actual, ultima_fecha_str)
+
+    # Apartado "¿De qué trata CentineLA?" — visible en ambas vistas
+    with st.expander("¿De qué trata CentineLA?", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**El problema**")
+            st.write(
+                "Las crecientes súbitas de la quebrada pueden formarse en pocas horas "
+                "tras lluvias intensas en la cuenca, con poco tiempo de reacción para "
+                "las familias cercanas."
+            )
+        with col2:
+            st.markdown("**Cómo funciona**")
+            st.write(
+                "Toma datos de lluvia de estaciones del IDEAM, estima cuánta agua "
+                "escurre hacia la quebrada y un modelo de aprendizaje automático calcula "
+                "la probabilidad de creciente en las próximas 6 horas."
+            )
+        with col3:
+            st.markdown("**Qué entrega**")
+            st.write(
+                "Un semáforo claro para la comunidad (verde, amarillo, rojo) y un panel "
+                "técnico para la JAC con el detalle de cada lectura."
+            )
+        st.caption(
+            "Prototipo: este panel usa el histórico del IDEAM procesado y un gateway "
+            "simulado. Proyecto individual de Bairon Nicolas Calle Rivera · ITM · "
+            "Territorio INN 2026, Reto #7."
+        )
+
+    # Sidebar
     vista = st.sidebar.radio(
         "Seleccionar vista",
         ["Vista Pública", "Vista Operador (JAC)"],
+        format_func=lambda x: "🏘️ Vista pública" if x == "Vista Pública" else "🛠️ Vista operador (JAC)",
     )
-    st.sidebar.caption(f"Filas en log: {len(log):,}  |  Último estado: {log.iloc[-1]['estado']}")
+    st.sidebar.caption(f"Última lectura: {ultima['timestamp']}")
+    st.sidebar.caption(f"Estado: {estado_actual}")
     st.sidebar.caption("CentineLA — Bairon Nicolas Calle Rivera · ITM · Territorio INN 2026")
 
     if vista == "Vista Pública":
@@ -828,6 +955,13 @@ def main() -> None:
             st.error("clf_6h.joblib no disponible — Vista Operador no puede mostrar importancias.")
         else:
             vista_operador(log, proxy, modelo)
+
+    # Footer
+    st.divider()
+    st.caption(
+        "CentineLA · Bairon Nicolas Calle Rivera · ITM · Territorio INN 2026 · "
+        "Datos: IDEAM (datos.gov.co) · Prototipo con gateway simulado"
+    )
 
 
 if __name__ == "__main__":
