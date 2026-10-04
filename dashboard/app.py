@@ -6,9 +6,12 @@ Uso:
     streamlit run dashboard/app.py
 """
 
+import importlib.util
 import base64
 import io
 import math
+import os
+import sys
 from pathlib import Path
 
 import joblib
@@ -22,6 +25,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_PATH = BASE_DIR / "data" / "processed" / "log_gateway_simulado.csv"
 PROXY_PATH = BASE_DIR / "data" / "processed" / "proxy_q_la_honda.csv"
 MODEL_PATH = BASE_DIR / "simulate" / "models" / "clf_6h.joblib"
+
+# Cargar simulate/11_actualizar_ahora.py via importlib (nombre con número)
+_ACTUALIZAR_PATH = BASE_DIR / "simulate" / "11_actualizar_ahora.py"
+_act_spec = importlib.util.spec_from_file_location("actualizar_ahora", _ACTUALIZAR_PATH)
+_act_mod = importlib.util.module_from_spec(_act_spec)
+_act_spec.loader.exec_module(_act_mod)
+actualizar_ahora = _act_mod.actualizar_ahora
+asegurar_db_sembrada = _act_mod._asegurar_db_sembrada
 
 # ── umbrales ternarios del sistema de alertas ──
 UMBRAL_PRECAUCION = 0.30
@@ -1074,6 +1085,22 @@ def main() -> None:
     )
     st.markdown(CSS_GLOBAL, unsafe_allow_html=True)
 
+    # Cargar credenciales desde Streamlit secrets si existen (antes de cualquier uso)
+    try:
+        if "SODAPY_USERNAME" in st.secrets:
+            os.environ.setdefault("SODAPY_USERNAME", st.secrets["SODAPY_USERNAME"])
+            os.environ.setdefault("SODAPY_PASSWORD", st.secrets["SODAPY_PASSWORD"])
+            if "SODAPY_APP_TOKEN" in st.secrets:
+                os.environ.setdefault("SODAPY_APP_TOKEN", st.secrets["SODAPY_APP_TOKEN"])
+    except Exception:
+        pass
+
+    # Sembrar BD SQLite si no existe (lazy, silencioso)
+    try:
+        asegurar_db_sembrada()
+    except Exception:
+        pass
+
     with st.spinner("Cargando datos..."):
         try:
             log = cargar_log()
@@ -1156,6 +1183,20 @@ def main() -> None:
     st.sidebar.caption(f"Última lectura: {ultima['timestamp']}")
     st.sidebar.caption(f"Estado: {estado_actual}")
     st.sidebar.caption("CentineLA — Bairon Nicolas Calle Rivera · ITM · Territorio INN 2026")
+
+    # Botón "Actualizar ahora" en sidebar
+    st.sidebar.divider()
+    if st.sidebar.button("🔄 Actualizar ahora", use_container_width=True):
+        with st.spinner("Consultando IDEAM y recalculando..."):
+            resultado = actualizar_ahora()
+        if resultado["ok"]:
+            st.sidebar.success(
+                f"Listo — última lectura: {resultado['ultima_lectura']}"
+            )
+            st.cache_data.clear()
+            st.rerun()
+        else:
+            st.sidebar.error(f"No se pudo actualizar: {resultado['error']}")
 
     if vista == "Vista Pública":
         vista_publica(log, proxy)

@@ -5,4 +5,5 @@ venv_test/
 .venv/
 .env
 data/raw/*.csv
+data/processed/centinela.db
 simulate/models/rf_6h*.joblib
