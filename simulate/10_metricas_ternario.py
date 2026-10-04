@@ -1,7 +1,7 @@
 """
 Fase 7 - Métricas para umbrales ternarios (0.30 / 0.70).
 
-Reusa la misma definición de etiqueta y split cronológico 82/18 de 08_clasificador_6h.py,
+Reusa la misma definición de etiqueta y split cronológico (corte fijo en la columna split del dataset) de 08_clasificador_6h.py,
 carga simulate/models/clf_6h.joblib e imprime recall y precisión sobre el split de test
 para umbrales 0.20, 0.30 y 0.70.
 

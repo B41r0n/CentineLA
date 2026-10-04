@@ -82,7 +82,7 @@ CUENCA ALTA                    TRAMO MEDIO                  TRAMO BAJO
 - **Umbral operativo del gateway (binario):** 0.20 sobre `predict_proba` en `09_gateway_simulado.py`. Recall=0.74, FP/TP≈1.5:1.
 - **Sistema de alertas del dashboard (ternario, desde 2026-10):** NORMAL `proba < 0.30` (verde #2ecc71), PRECAUCIÓN `0.30 ≤ proba < 0.70` (amarillo #f39c12), ALERTA `proba ≥ 0.70` (rojo #e74c3c) — ver `clasificar_estado()` y `UMBRAL_PRECAUCION`/`UMBRAL_ALERTA` en `dashboard/app.py`. El log histórico `ALERTA_6H`/`NORMAL` se normaliza a ternario al cargar. El clasificador sigue siendo una fuente dentro de la fusión multi-sensor (regla: ≥2 fuentes críticas = rojo), no árbitro único.
 - **Techo real de recall:** ~0.82 con umbral 0.10. Ningún umbral en [0.1, 0.5] alcanza recall ≥ 0.85 — limitación conocida, mitigada por diseño multi-fuente.
-- **Split:** cronológico 82/18. Corte: train hasta 2025-07-06 15:00, test desde 2025-07-06 16:00. Nunca aleatorio.
+- **Split:** cronológico con corte fijo. Train hasta 2025-07-06 15:00 (35,315 filas, 79.6%), test desde 2025-07-06 16:00 hasta 2026-09-30 (9,051 filas, 20.4%). Nunca aleatorio.
 - **Horizonte priorizado:** 6h (cuenca de ladera, tiempo de concentración corto; deadline oct-2026). Datasets 12h/24h generados pero no entrenados con el mismo rigor.
 - **Métricas clave:** recall y precision de clase positiva. Accuracy es inútil con 95% de clase negativa — baseline siempre-negativo tiene accuracy=0.95 y recall=0.
 - **Proxy SCS-CN:** `S = (25400/CN) - 254`, `Ia = 0.2*S`, `Q = (P-Ia)²/(P-Ia+S)` si `P > Ia`. CN=81.1 (ver `cuenca_la_honda_params.py`). P acumulado en rolling 24h. Aproximación de evento único aplicada a serie continua — documentar limitación; calibrar con nivel real cuando llegue de AMVA/SIATA.
@@ -222,6 +222,8 @@ Causa: 0.85% de eventos en el dataset. RF diluyeresiduals hacia la media estruct
 
 ### Clasificador RF (enfoque final)
 
+**Barrido de umbrales — corrida del 27-jul-2026 (referencia histórica, dataset de 43,068 filas):**
+
 | Umbral | Recall | Precision | FN | FP | TP |
 |---|---|---|---|---|---|
 | 0.50 | 0.607 | 0.612 | 144 | 141 | 222 |
@@ -231,13 +233,26 @@ Causa: 0.85% de eventos en el dataset. RF diluyeresiduals hacia la media estruct
 | 0.15 | 0.781 | 0.311 | 80 | 633 | 286 |
 | 0.10 | 0.817 | 0.257 | 67 | 865 | 299 |
 
+**Métricas con umbrales ternarios (corrida del 03-oct-2026):**
+
+| Umbral | Recall    | Precisión | Rol en el sistema                |
+|--------|-----------|-----------|----------------------------------|
+| 0.20   | 0.752998  | 0.415344  | referencia binaria anterior      |
+| 0.30   | 0.714628  | 0.497496  | PRECAUCIÓN (amarillo) o más      |
+| 0.70   | 0.549161  | 0.860902  | ALERTA (rojo)                    |
+
+**Parámetros:** Train 35,315 filas (hasta 2025-07-06 15:00), Test 9,051 filas (2025-07-06 16:00 → 2026-09-30), 417 positivos en test. Reproducible con `python simulate/10_metricas_ternario.py`.
+
+**Lectura:** el amarillo captura más crecientes (71%) pero la mitad de sus avisos son falsas alarmas; el rojo detecta menos (55%) pero 86% de sus avisos son reales.
+
 Techo real de recall aislado: ~0.82. Limitación mitigada por fusión multi-fuente en la arquitectura.
 
 ## Fase 2 — Gateway simulado
 
 - `simulate/09_gateway_simulado.py` valida features streaming vs batch con 500 timestamps aleatorios, epsilon 1e-6 — **validación pasó limpia**.
 - Inferencia sobre serie completa (~9.5 años): 4947 alertas ALERTA_6H / 38918 NORMAL (log binario del gateway). El dashboard lo re-etiqueta a NORMAL / PRECAUCIÓN / ALERTA con los umbrales ternarios.
-- Ventana de test real (2025-07-06 → 2026-07-09): 693 alertas en 7883 filas (8.8%), consistente con barrido de umbrales (~680 esperado para umbral 0.20).
+- Ventana de test real (2025-07-06 → 2026-07-09): 693 alertas en 7883 filas (8.8%), consistente con barrido de umbrales (~680 esperado para umbral 0.20) **(corrida previa, al 13-sep-2026)**.
+- Ventana de test actual (2025-07-06 → 2026-09-30): 9,051 filas, 417 positivos (label_6h=1).
 - Implementación: micro-lotes de 2048 filas con `n_jobs=1` en inferencia para evitar overhead de threading.
 
 ## Lecciones técnicas — Fase 2

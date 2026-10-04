@@ -668,8 +668,9 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
     st.caption(
         "Detectadas = de cada 100 crecientes reales, cuántas avisó el sistema. "
         "Alertas reales = de cada 100 avisos, cuántos fueron crecientes de verdad. "
-        "Calculado sobre datos históricos que el modelo no vio al entrenar "
-        "(split cronológico 82/18). No se recalcula en vivo."
+        "Calculado sobre el periodo de prueba (2025-07-06 → 2026-09-30, 9,051 horas), "
+        "que el modelo no vio al entrenar. No se recalcula en vivo — "
+        "fuente: simulate/10_metricas_ternario.py."
     )
     # Métricas calculadas por simulate/10_metricas_ternario.py
     RECALL_PRECAUCION = 0.714628

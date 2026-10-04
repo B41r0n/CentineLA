@@ -2,6 +2,7 @@
 
 Fecha de auditoría: 2026-07-27  
 Modo: auditoría posterior a limpieza de credenciales y reescritura de historial.
+**Nota 03-oct-2026: este reporte describe el estado al 27-jul-2026 (modelo binario, umbral 0.20, split 82/18). El estado vigente está en README.md y CENTINELA_CONTEXTO_TECNICO.md.**
 Nota: el directorio **sí es un repositorio Git**. Tras la reescritura de historial, la rama `master` tiene un historial limpio con los archivos actuales; los commits anteriores que contenían credenciales hardcodeadas fueron eliminados localmente y en `origin` mediante force-push. Las credenciales afectadas aún deben considerarse comprometidas y rotarse.
 
 ---

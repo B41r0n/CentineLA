@@ -404,7 +404,7 @@ features["mes"] = features.index.month
 
 6. **Targets:** crea `target_6h`, `target_12h`, `target_24h` con `base_horaria["Q_scs_proxy"].shift(-horizonte_horas)`.
 7. **Split cronológico:**
-   * Si ya existe un `dataset_{h}h.csv` previo con columna `split`, **preserva el corte** para no cambiar la evaluación entre corridas.
+   * Si ya existe un `dataset_{h}h.csv` previo con columna `split`, **preserva el corte** para no cambiar la evaluación entre corridas. Si existe un dataset previo, el ETL conserva su corte; en la corrida del 01-oct-2026 el corte se mantuvo en 2025-07-06 15:00.
    * Si no, usa proporción **82/18** (`int(n_total * 0.82)`).
 8. **Guarda** `dataset_6h.csv`, `dataset_12h.csv`, `dataset_24h.csv`.
 
@@ -576,7 +576,7 @@ RandomForestClassifier(
     accuracy                       0.963240      7753
 ```
 
-**Barrido de umbrales sobre `predict_proba` (clase positiva) — referencia del modelo binario:**
+**Barrido de umbrales — corrida del 27-jul-2026 (referencia histórica, dataset de 43,068 filas):**
 
 | Umbral | Recall | Precisión | FN | FP | TP |
 |--------|--------|-----------|----|----|----|
@@ -586,6 +586,18 @@ RandomForestClassifier(
 | 0.20 | 0.743169 | 0.400000 | 94 | 408 | 272 |
 | 0.15 | 0.781421 | 0.311208 | 80 | 633 | 286 |
 | 0.10 | 0.816940 | 0.256873 | 67 | 865 | 299 |
+
+### Métricas con umbrales ternarios (corrida del 03-oct-2026)
+
+| Umbral | Recall    | Precisión | Rol en el sistema                |
+|--------|-----------|-----------|----------------------------------|
+| 0.20   | 0.752998  | 0.415344  | referencia binaria anterior      |
+| 0.30   | 0.714628  | 0.497496  | PRECAUCIÓN (amarillo) o más      |
+| 0.70   | 0.549161  | 0.860902  | ALERTA (rojo)                    |
+
+**Parámetros de la corrida:** Train 35,315 filas (hasta 2025-07-06 15:00), Test 9,051 filas (2025-07-06 16:00 → 2026-09-30), 417 positivos en test (label_6h=1). Reproducible con `python simulate/10_metricas_ternario.py`.
+
+**Lectura:** el amarillo captura más crecientes (71%) pero la mitad de sus avisos son falsas alarmas; el rojo detecta menos (55%) pero 86% de sus avisos son reales.
 
 **Observación importante sobre el recomendador automático:**
 
@@ -705,6 +717,10 @@ timestamp,P_basin,Q_actual,Q_lag_1h,roll_sum_24h,hora_dia,mes,proba_alerta,estad
 
 ### 7.1 `dashboard/app.py` — Aplicación Streamlit
 
+**Header con logo y badges:** al iniciar, `render_header()` muestra el logo SVG (base64), el título "CentineLA" (con "LA" en rojo), subtítulos "Sistema integrado de vigilancia comunitaria" y "Quebrada La Honda · Comuna 4 · Medellín", y tres badges dinámicos: estado actual (NORMAL/PRECAUCIÓN/ALERTA con colores), "Territorio INN 2026 · Reto #7", y "Datos al {fecha última lectura}".
+
+**Apartado "¿De qué trata CentineLA?"** (`st.expander` expandido por defecto, visible en ambas vistas): tres columnas con "El problema", "Cómo funciona" y "Qué entrega", más caption de crédito del proyecto.
+
 **Lanzamiento:**
 
 ```bash
@@ -720,10 +736,12 @@ streamlit run dashboard/app.py
 **Constantes clave:**
 
 ```python
-RECALL_OPERATIVO = 0.743
-PRECISION_OPERATIVA = 0.400
 UMBRAL_PRECAUCION = 0.30
 UMBRAL_ALERTA = 0.70
+RECALL_PRECAUCION = 0.714628
+PRECISION_PRECAUCION = 0.497496
+RECALL_ALERTA = 0.549161
+PRECISION_ALERTA = 0.860902
 
 N_NODOS = 5
 
@@ -744,29 +762,19 @@ ANCLAS = [
 
 ### Vista Pública
 
-* **Semáforo + probabilidad:** muestra el último estado del log (`NORMAL`, `PRECAUCIÓN` o `ALERTA`) y `proba_alerta`. Estados: NORMAL `proba < 0.30` (verde), PRECAUCIÓN `[0.30, 0.70)` (amarillo), ALERTA `≥ 0.70` (rojo).
-* **Tarjetas de lluvia acumulada:**
-  * Últimas 24 h.
-  * Últimos 30 días.
-  * Año en curso.
-  * La referencia es siempre `proxy["timestamp"].max()` (actualmente `2026-07-09`), no la fecha del reloj del sistema.
-* **Mapa de nodos:**
-  * Interactivo con Folium si hay internet.
-  * Fallback estático con Matplotlib si no hay conexión.
-  * 5 nodos interpolados por longitud de arco entre las 3 anclas.
-* **Calendario de alertas:** cuadrícula de los últimos 90 días; verde = solo NORMAL, amarillo = al menos una hora PRECAUCIÓN, rojo = al menos una hora ALERTA.
+* **Estado actual de la quebrada:** semáforo con probabilidad y línea de acción según estado (NORMAL / PRECAUCIÓN / ALERTA).
+* **Lluvia acumulada:** tarjetas con últimas 24 h, 30 días y año en curso.
+* **Mapa de la quebrada y sus puntos de monitoreo:** 5 nodos interpolados por longitud de arco entre las 3 anclas (Folium interactivo / Matplotlib estático).
+* **Historial de los últimos 90 días:** cuadrícula día a día; verde = solo NORMAL, amarillo = hubo PRECAUCIÓN, rojo = hubo ALERTA.
 
 ### Vista Operador (JAC)
 
-* **Log de gateway:** tabla con las últimas 100 filas de `log_gateway_simulado.csv`.
-* **Gráfico histórico dual-axis:**
-  * `P_basin` (eje izquierdo).
-  * `Q_scs_proxy` + alertas (eje derecho).
-  * Selector de rango de fechas.
-* **Métricas del modelo:** recall=0.743, precisión=0.400 (referencia del modelo binario); umbrales ternarios PRECAUCIÓN=0.30, ALERTA=0.70.
-* **Feature importance:** barras horizontales de `clf_6h.joblib`.
-* **Inspección de punto histórico:** selección de fecha y hora para ver `estado`, `proba_alerta` y features.
-* **Simulador interactivo del modelo.**
+* **Registro de lecturas recientes:** tabla con las últimas 100 filas de `log_gateway_simulado.csv` (nombres legibles).
+* **Comportamiento histórico de la cuenca:** gráfico dual-axis `P_basin` / `Q_scs_proxy` con marcadores de PRECAUCIÓN (amarillo) y ALERTA (rojo); selector de rango de fechas.
+* **Confiabilidad del sistema:** 4 métricas (recall/precisión para PRECAUCIÓN y ALERTA) calculadas sobre el split de test cronológico; fuente `simulate/10_metricas_ternario.py`.
+* **¿Qué factores pesan más en la alerta?:** feature importance con etiquetas legibles; expander "Detalle técnico" con info del modelo.
+* **Consultar un momento específico:** selector de fecha y hora; muestra estado, probabilidad y features con nombres legibles.
+* **Simular un escenario de lluvia:** sliders con nombres en español, 3 presets, botón "Simular" y semáforo de resultado.
 
 ### 7.2 Simulador interactivo
 
@@ -937,7 +945,7 @@ Solo se incluyen limitaciones confirmadas por el código o los datos:
 4. **SCS-CN aplicado como evento único sobre serie continua.** El proxy usa acumulado 24 h sin reiniciar explícitamente eventos de lluvia; es una aproximación documentada.
 5. **Desbalance extremo.** Con `p90=0.0`, la clase positiva equivale a `target_6h > 0`, que representa ~8.9 % en entrenamiento y ~4.7 % en test.
 6. **No hay split aleatorio; es cronológico.** El test está fijado desde `2025-07-06 16:00` en adelante. Cualquier cambio estructural en los datos recientes afecta las métricas.
-7. **Recall aislado del clasificador no supera ~0.82.** A umbral 0.10 se alcanza 0.817; a 0.20 es 0.743. El diseño asume que el clasificador será una de varias fuentes en una regla de fusión multi-sensor. El estado PRECAUCIÓN (0.30–0.70) amplía la vigilancia sin disparar la alerta máxima.
+7. **Recall aislado del clasificador no supera ~0.82.** A umbral 0.10 se alcanza 0.817; a 0.20 es 0.743 (corrida del 27-jul-2026). El diseño asume que el clasificador será una de varias fuentes en una regla de fusión multi-sensor. El estado PRECAUCIÓN (0.30–0.70) amplía la vigilancia sin disparar la alerta máxima.
 8. **Modelos y datos grandes están parcialmente versionados.** Desde la limpieza de 2026-10, los datasets procesados y `clf_6h.joblib`/`clf_6h_baseline_20260913.joblib` están en el repo; los `rf_6h*.joblib` y `data/raw/*.csv` se regeneran o comparten por otro medio.
 9. **Capa física (LoRa, sensores, cámaras) no implementada.** Solo existe el simulador y la arquitectura documentada.
 10. **Prototipo IoT base documentado solo como referencia.** Los issues del sketch Wokwi (credenciales WiFi expuestas, `WiFiMulti`, umbral de temperatura) no se han resuelto en este repo.
@@ -1076,7 +1084,7 @@ METROMEDELLIN_GAP_FIN    = pd.Timestamp("2019-07-26 11:00:00")
 | CN por tramo alto/medio/bajo | 70 / 92 / 85 | `simulate/cuenca_la_honda_params.py` |
 | Mínimo estaciones | 2 | `LOW_QUALITY_MIN_ESTACIONES = 2` en `06` y `09` |
 | Horizontes generados | 6, 12, 24 h | `HORIZONTES = (6, 12, 24)` en `06` |
-| Split train/test | 82 / 18 cronológico | `06_etl_features.py` |
+| Split train/test | 80 / 20 cronológico (corte fijo 2025-07-06 15:00; train 35,315 filas, test 9,051 filas hasta 2026-09-30) | `06_etl_features.py` |
 | Estaciones usadas | 0027015290, 0027015310, 0027015330 | `04_scs_cn_proxy.py` |
 | Sensor canónico | 240 | `04_scs_cn_proxy.py` |
 | Sensor QA Olaya | 257 | `04_scs_cn_proxy.py` |
@@ -1086,5 +1094,9 @@ METROMEDELLIN_GAP_FIN    = pd.Timestamp("2019-07-26 11:00:00")
 | Umbral binario gateway | 0.20 | `09_gateway_simulado.py` |
 | Recall binario (umbral 0.20) | 0.752998 | `08_clasificador_6h.py` (barrido) |
 | Precisión binaria (umbral 0.20) | 0.415344 | `08_clasificador_6h.py` (barrido) |
+| Recall PRECAUCIÓN (umbral 0.30) | 0.714628 | `simulate/10_metricas_ternario.py` |
+| Precisión PRECAUCIÓN (umbral 0.30) | 0.497496 | `simulate/10_metricas_ternario.py` |
+| Recall ALERTA (umbral 0.70) | 0.549161 | `simulate/10_metricas_ternario.py` |
+| Precisión ALERTA (umbral 0.70) | 0.860902 | `simulate/10_metricas_ternario.py` |
 | Gateway validación | 500 timestamps, ε=1e-6 | `09_gateway_simulado.py` |
 | Alertas/NORMAL gateway | 5 028 / 40 167 | `09_gateway_simulado.py` |
