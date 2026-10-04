@@ -23,9 +23,7 @@ LOG_PATH = BASE_DIR / "data" / "processed" / "log_gateway_simulado.csv"
 PROXY_PATH = BASE_DIR / "data" / "processed" / "proxy_q_la_honda.csv"
 MODEL_PATH = BASE_DIR / "simulate" / "models" / "clf_6h.joblib"
 
-# ── métricas operativas (calculadas en 08_clasificador_6h.py) ──
-RECALL_OPERATIVO = 0.743
-PRECISION_OPERATIVA = 0.400
+# ── umbrales ternarios del sistema de alertas ──
 UMBRAL_PRECAUCION = 0.30
 UMBRAL_ALERTA = 0.70
 
@@ -665,7 +663,7 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
     _grafico_historico(log, proxy)
     st.divider()
 
-    # 3. Confiabilidad del sistema (se actualiza en Fase 7)
+    # 3. Confiabilidad del sistema
     st.subheader("🎯 Confiabilidad del sistema")
     st.caption(
         "Detectadas = de cada 100 crecientes reales, cuántas avisó el sistema. "
@@ -673,28 +671,33 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
         "Calculado sobre datos históricos que el modelo no vio al entrenar "
         "(split cronológico 82/18). No se recalcula en vivo."
     )
-    # Placeholder para métricas de Fase 7
+    # Métricas calculadas por simulate/10_metricas_ternario.py
+    RECALL_PRECAUCION = 0.714628
+    PRECISION_PRECAUCION = 0.497496
+    RECALL_ALERTA = 0.549161
+    PRECISION_ALERTA = 0.860902
+
     c1, c2 = st.columns(2)
     with c1:
         st.metric(
             "Crecientes detectadas (desde precaución)",
-            "—",
+            f"{RECALL_PRECAUCION:.1%}",
             help="Recall con umbral 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
         )
         st.metric(
             "Crecientes detectadas (solo alerta roja)",
-            "—",
+            f"{RECALL_ALERTA:.1%}",
             help="Recall con umbral 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
         )
     with c2:
         st.metric(
             "Alertas que fueron reales (desde precaución)",
-            "—",
+            f"{PRECISION_PRECAUCION:.1%}",
             help="Precisión con umbral 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
         )
         st.metric(
             "Alertas rojas que fueron reales",
-            "—",
+            f"{PRECISION_ALERTA:.1%}",
             help="Precisión con umbral 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
         )
     st.divider()
@@ -779,7 +782,7 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
         if cols_mostrar:
             df_vals = pd.DataFrame([{c: round(float(fila[c]), 6) for c in cols_mostrar}])
             df_vals = df_vals.T.rename(columns={0: "Valor"})
-            df_vals.index = df_vals.index.map(NOMBRES_LEGIBLES).fillna(df_vals.index)
+            df_vals.index = [NOMBRES_LEGIBLES.get(idx, idx) for idx in df_vals.index]
             st.dataframe(df_vals, use_container_width=True)
 
     st.divider()
