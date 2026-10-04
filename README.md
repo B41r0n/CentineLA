@@ -6,7 +6,7 @@ Sistema de alerta temprana de crecientes súbitas para la **Quebrada La Honda**,
 
 ## Autor
 
-Bairon Nicolas Calle Rivera — estudiante de Tecnología en Sistemas, ITM (Instituto Tecnológico Metropolitano), Medellín.
+Bairon Nicolas Calle Rivera — estudiante de Gestión de Redes de Telecomunicaciones, ITM (Instituto Tecnológico Metropolitano), Medellín.
 Proyecto individual — Territorio INN 2026, Reto #7.
 
 ---
