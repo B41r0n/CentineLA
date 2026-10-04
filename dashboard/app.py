@@ -166,26 +166,9 @@ def check_red(timeout: int = 3) -> bool:
         return False
 
 
-def semaforo_html(estado: str) -> str:
-    if estado == "ALERTA":
-        bg, emoji, texto = "#e74c3c", "🔴", "ALERTA — PRÓXIMAS 6 HORAS"
-    elif estado == "PRECAUCIÓN":
-        bg, emoji, texto = "#f39c12", "🟡", "PRECAUCIÓN — CONDICIONES A REVISAR"
-    else:
-        bg, emoji, texto = "#2ecc71", "🟢", "NORMAL"
-    return f"""
-    <div style="
-        background-color:{bg};
-        border-radius:16px;
-        padding:24px 32px;
-        text-align:center;
-        color:white;
-        font-size:2rem;
-        font-weight:bold;
-        letter-spacing:0.05em;
-        box-shadow:0 4px 12px rgba(0,0,0,0.3);
-    ">{emoji}&nbsp;&nbsp;{texto}</div>
-    """
+def _compacto(html: str) -> str:
+    """Elimina líneas en blanco y espacios sobrantes de HTML."""
+    return "\n".join(l for l in html.split("\n") if l.strip())
 
 
 # ── carga de datos con caché ──────────────────────────────────────────────────
@@ -220,13 +203,17 @@ def _mapa_folium(anclas: list[dict], nodos: list[dict], estado: str) -> None:
     lons_a = [a["lon"] for a in anclas]
     centro_lat = float(np.mean(lats_a))
     centro_lon = float(np.mean(lons_a))
-    # Tema oscuro: CartoDB dark_matter
+    # OpenStreetMap con filtro CSS para tema oscuro (CartoDB exige API key)
     m = folium.Map(
         location=[centro_lat, centro_lon],
         zoom_start=13,
-        tiles="CartoDB dark_matter",
-        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        tiles="OpenStreetMap",
+        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     )
+    # Filtro CSS solo sobre los tiles para oscurecer el mapa
+    m.get_root().header.add_child(folium.Element(
+        "<style>.leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) "
+        "brightness(.92) contrast(.88) saturate(.55);}</style>"))
     pad = 0.015   # ~1.5 km de margen alrededor de las anclas
     m.fit_bounds(
         [[min(lats_a) - pad, min(lons_a) - pad],
@@ -252,7 +239,7 @@ def _mapa_folium(anclas: list[dict], nodos: list[dict], estado: str) -> None:
 
     st_folium(m, height=550, use_container_width=True, returned_objects=[])
     st.caption(
-        "Mapa interactivo (CartoDB dark matter). "
+        "Mapa interactivo (OpenStreetMap, tema oscuro). "
         "Posiciones de nodos son ilustrativas — no GPS de campo."
     )
 
@@ -359,17 +346,6 @@ def mostrar_mapa(anclas: list[dict], nodos: list[dict], estado: str) -> None:
 
 # ── helpers de Vista Pública ──────────────────────────────────────────────────
 
-def _tarjeta_html(icono: str, label: str, valor: str, unidad: str = "") -> str:
-    return (
-        f'<div class="metric-card">'
-        f'<div style="font-size:1.6rem;margin-bottom:4px">{icono}</div>'
-        f'<div class="metric-label">{label}</div>'
-        f'<div class="metric-value">{valor}</div>'
-        f'<div style="font-size:11px;color:#888;margin-top:2px">{unidad}</div>'
-        f'</div>'
-    )
-
-
 def _color_proba(proba: float) -> str:
     if proba >= UMBRAL_ALERTA:
         return "#e74c3c"
@@ -398,12 +374,11 @@ def _gauge_html(proba: float) -> str:
 
 
 def _hero_html(estado: str, proba: float, ultima_ts_str: str) -> str:
-    """Hero card: pill, título (banner), acción, probabilidad grande, gauge, caption."""
+    """Hero card: título (banner), acción, probabilidad grande, gauge, caption."""
     ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
     color_p = _color_proba(proba)
-    return f"""
+    return _compacto(f"""
 <div class="cl-hero" style="--c:{ui['color']}">
-  <div>{_pill(estado)}</div>
   <div class="title">{ui['banner']}</div>
   <div class="action">{ui['accion']}</div>
   <div style="margin-top:14px">
@@ -417,14 +392,14 @@ def _hero_html(estado: str, proba: float, ultima_ts_str: str) -> str:
     Semáforo calculado con la última lectura disponible ({ultima_ts_str}).
   </div>
 </div>
-"""
+""")
 
 
 def _estado_semaforo_html(estado: str, proba: float) -> str:
     """Semaforo compacto para el simulador: pill + prob + gauge."""
     ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
     color_p = _color_proba(proba)
-    return f"""
+    return _compacto(f"""
 <div class="cl-card" style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px">
   <div>{_pill(estado)}</div>
   <div style="font-size:14px;color:var(--cl-muted)">Probabilidad de creciente</div>
@@ -434,23 +409,18 @@ def _estado_semaforo_html(estado: str, proba: float) -> str:
     Verde < 30% · Amarillo 30–70% · Rojo ≥ 70%
   </div>
 </div>
-"""
-
-
-def semaforo_html(estado: str) -> str:
-    """Semaforo simple (solo estado + pill)."""
-    return _pill(estado)
+""")
 
 
 def _tarjeta_html(icono: str, label: str, valor: str, unidad: str = "") -> str:
-    return f"""
+    return _compacto(f"""
 <div class="cl-card cl-stat" style="text-align:center">
   <div style="font-size:1.6rem;margin-bottom:4px">{icono}</div>
   <div class="k">{label}</div>
   <div class="v">{valor}</div>
   <div class="u">{unidad}</div>
 </div>
-"""
+""")
 
 
 def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
@@ -626,12 +596,14 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
                 "barra es la probabilidad más alta de ese día."
             )
 
-    # 4. Lluvia acumulada: 3 tarjetas con _tarjeta_html
+    # 4. Lluvia acumulada: 3 tarjetas con _tarjeta_html en grid
     st.subheader("Lluvia acumulada")
     st.markdown(
-        _tarjeta_html("🌧️", "Últimas 24 horas", f"{ult_24h:.1f}", "mm")
+        _compacto(f'<div class="cl-grid3">'
+        + _tarjeta_html("🌧️", "Últimas 24 horas", f"{ult_24h:.1f}", "mm")
         + _tarjeta_html("📅", "Últimos 30 días", f"{ult_30d:.1f}", "mm")
-        + _tarjeta_html("📆", "Año en curso", f"{anio_mm:.1f}", "mm"),
+        + _tarjeta_html("📆", "Año en curso", f"{anio_mm:.1f}", "mm")
+        + '</div>'),
         unsafe_allow_html=True,
     )
     st.caption(
@@ -996,6 +968,8 @@ CSS_GLOBAL = """
 --cl-text:#e8ecf1;--cl-muted:#8b95a5;--cl-accent:#3498db;
 --cl-ok:#2ecc71;--cl-warn:#f39c12;--cl-danger:#e74c3c}
 [data-testid="stMainBlockContainer"]{padding-top:1.5rem;max-width:1400px}
+[data-testid="stSidebarUserContent"]{padding-top:.25rem}
+[data-testid="stSidebarHeader"]{padding-bottom:0}
 h2,h3{font-weight:600!important;letter-spacing:-.01em}
 .cl-card{background:var(--cl-card);border:1px solid var(--cl-border);border-radius:16px;padding:18px 20px}
 [class*="st-key-card-"]{background:var(--cl-card);border-radius:16px}
@@ -1011,6 +985,7 @@ h2,h3{font-weight:600!important;letter-spacing:-.01em}
 .cl-gauge{position:relative;display:flex;height:10px;margin:18px 0 6px}
 .cl-gauge .mk{position:absolute;top:-4px;width:4px;height:18px;border-radius:2px;background:#fff;transform:translateX(-50%)}
 .cl-gauge-lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--cl-muted)}
+.cl-grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:8px}
 .cl-item{display:grid;grid-template-columns:64px auto 1fr 46px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--cl-border)}
 .cl-bar{height:6px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
 .cl-bar>span{display:block;height:100%;border-radius:999px}
@@ -1154,12 +1129,12 @@ def main() -> None:
         )
 
     # Sidebar
-    # Logo + título en sidebar
+    # Logo + título en sidebar (grande, arriba a la izquierda)
     st.sidebar.markdown(
         f"""
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-  <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="28" height="35" alt="CentineLA logo">
-  <div style="font-size:22px;font-weight:500;letter-spacing:-0.5px;color:#3498db;line-height:1;white-space:nowrap">
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;justify-content:flex-start">
+  <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="64" height="80" alt="CentineLA logo">
+  <div style="font-size:32px;font-weight:500;letter-spacing:-1px;color:#3498db;line-height:1;white-space:nowrap">
     Centine<span style="color:#e74c3c">LA</span>
   </div>
 </div>
