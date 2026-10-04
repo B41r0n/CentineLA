@@ -541,7 +541,7 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
 
     # 1. Fila de chips con datos reales (ancho completo)
     ult_24h, ult_30d, anio_mm, _ = _lluvia_acumulada(proxy)
-    # Dias con alerta en ultimos 30 dias
+    # Días con alerta en últimos 30 días
     corte_30d = ultima["timestamp"] - pd.Timedelta(days=30)
     log_30d = log[log["timestamp"] >= corte_30d]
     dias_alerta_30d = log_30d[log_30d["estado"] == "ALERTA"]["timestamp"].dt.date.nunique()
@@ -550,12 +550,12 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
         ("Estado", _pill(estado_actual)),
         ("Probabilidad", f"{proba_actual:.1%}"),
         ("Lluvia 24 h", f"{ult_24h:.1f} mm"),
-        ("Ultima lectura", ultima_ts_str),
-        ("Dias con alerta (30 d)", str(dias_alerta_30d)),
+        ("Última lectura", ultima_ts_str),
+        ("Días con alerta (30 d)", str(dias_alerta_30d)),
     ]
     st.markdown(_chips_html(chips, estado=estado_actual), unsafe_allow_html=True)
 
-    # 2. Dos columnas: Hero (izq) + Ultimos dias con alertas (der)
+    # 2. Dos columnas: Hero (izq) + Últimos días con alertas (der)
     col_izq, col_der = st.columns([1, 1])
 
     with col_izq:
@@ -564,9 +564,9 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
 
     with col_der:
         with st.container(border=True, key="card-alertas"):
-            st.subheader("Ultimos dias con alertas")
-            # Agrupar por fecha, tomar dias con estado != NORMAL
-            estado_map = {"NORMAL": 0, "PRECAUCION": 1, "ALERTA": 2}
+            st.subheader("Últimos días con alertas")
+            # Agrupar por fecha, tomar días con estado != NORMAL
+            estado_map = {"NORMAL": 0, "PRECAUCIÓN": 1, "ALERTA": 2}
             dia_estado = (
                 log.groupby(log["timestamp"].dt.date)["estado"]
                 .apply(lambda s: max((estado_map.get(e, 0) for e in s), default=0))
@@ -578,9 +578,9 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
             if dias_con_evento:
                 items_html = []
                 for d, nivel in dias_con_evento[:6]:
-                    est = {0: "NORMAL", 1: "PRECAUCION", 2: "ALERTA"}[nivel]
+                    est = {0: "NORMAL", 1: "PRECAUCIÓN", 2: "ALERTA"}[nivel]
                     ui = ESTADO_UI[est]
-                    # probabilidad maxima del dia
+                    # probabilidad máxima del día
                     mask_dia = log["timestamp"].dt.date == d
                     proba_max = float(log[mask_dia]["proba_alerta"].max())
                     fecha_str = d.strftime("%d-%b").replace(
@@ -601,8 +601,8 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
             else:
                 st.write("Sin precauciones ni alertas en el periodo.")
             st.caption(
-                "Dias recientes en que el sistema dio precaucion o alerta. La "
-                "barra es la probabilidad mas alta de ese dia."
+                "Días recientes en que el sistema dio precaución o alerta. La "
+                "barra es la probabilidad más alta de ese día."
             )
 
     # 3. Mapa a ancho completo
@@ -619,24 +619,24 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
     st.subheader("Lluvia acumulada")
     st.markdown(
         _compacto(f'<div class="cl-grid3">'
-        + _tarjeta_html("🌧️", "Ultimas 24 horas", f"{ult_24h:.1f}", "mm")
-        + _tarjeta_html("📅", "Ultimos 30 dias", f"{ult_30d:.1f}", "mm")
-        + _tarjeta_html("📆", "Ano en curso", f"{anio_mm:.1f}", "mm")
+        + _tarjeta_html("🌧️", "Últimas 24 horas", f"{ult_24h:.1f}", "mm")
+        + _tarjeta_html("📅", "Últimos 30 días", f"{ult_30d:.1f}", "mm")
+        + _tarjeta_html("📆", "Año en curso", f"{anio_mm:.1f}", "mm")
         + '</div>'),
         unsafe_allow_html=True,
     )
     st.caption(
-        "Cuanta lluvia ha caido en la cuenca. Mas lluvia acumulada significa suelo "
-        "mas saturado y mayor riesgo."
+        "Cuánta lluvia ha caído en la cuenca. Más lluvia acumulada significa suelo "
+        "más saturado y mayor riesgo."
     )
 
-    # 5. Historial de los ultimos 90 dias
-    st.subheader("Historial de los ultimos 90 dias")
+    # 5. Historial de los últimos 90 días
+    st.subheader("Historial de los últimos 90 días")
     with st.container(border=True, key="card-calendario"):
         st.markdown(_calendario_html(log, n_dias=90), unsafe_allow_html=True)
     st.caption(
-        "Cada cuadro es un dia. Verde: sin alertas. Amarillo: hubo "
-        "precaucion. Rojo: hubo alerta."
+        "Cada cuadro es un día. Verde: sin alertas. Amarillo: hubo "
+        "precaución. Rojo: hubo alerta."
     )
 def _estilo_plotly(fig: go.Figure) -> go.Figure:
     """Aplica tema oscuro a un figure de Plotly."""
