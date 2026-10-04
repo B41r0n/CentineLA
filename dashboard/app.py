@@ -968,7 +968,7 @@ CSS_GLOBAL = """
 --cl-text:#e8ecf1;--cl-muted:#8b95a5;--cl-accent:#3498db;
 --cl-ok:#2ecc71;--cl-warn:#f39c12;--cl-danger:#e74c3c}
 [data-testid="stMainBlockContainer"]{padding-top:1.5rem;max-width:1400px}
-[data-testid="stSidebarUserContent"]{padding-top:.25rem}
+[data-testid="stSidebarUserContent"]{padding-top:.25rem;overflow:visible}
 [data-testid="stSidebarHeader"]{padding-bottom:0}
 h2,h3{font-weight:600!important;letter-spacing:-.01em}
 .cl-card{background:var(--cl-card);border:1px solid var(--cl-border);border-radius:16px;padding:18px 20px}
@@ -1040,9 +1040,9 @@ def render_header(estado: str, ultima_lectura: str) -> None:
     st.markdown(
         f"""
 <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">
-  <div style="display:flex;align-items:center;gap:8px">
-    <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="44" height="56" alt="CentineLA logo">
-    <div style="font-size:44px;font-weight:500;letter-spacing:-1px;color:#3498db;line-height:1;white-space:nowrap">
+  <div style="display:flex;align-items:center;gap:8px;overflow:visible">
+    <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="44" height="56" style="flex-shrink:0;object-fit:contain" alt="CentineLA logo">
+    <div style="font-size:44px;font-weight:500;letter-spacing:-1px;color:#3498db;line-height:1;white-space:nowrap;flex-shrink:1;min-width:0">
       Centine<span style="color:#e74c3c">LA</span>
     </div>
   </div>
@@ -1132,9 +1132,9 @@ def main() -> None:
     # Logo + título en sidebar (grande, arriba a la izquierda)
     st.sidebar.markdown(
         f"""
-<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;justify-content:flex-start">
-  <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="64" height="80" alt="CentineLA logo">
-  <div style="font-size:32px;font-weight:500;letter-spacing:-1px;color:#3498db;line-height:1;white-space:nowrap">
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;justify-content:flex-start;overflow:visible">
+  <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="76" height="95" style="flex-shrink:0;object-fit:contain" alt="CentineLA logo">
+  <div style="font-size:38px;font-weight:500;letter-spacing:-1px;color:#3498db;line-height:1;white-space:nowrap;flex-shrink:1;min-width:0">
     Centine<span style="color:#e74c3c">LA</span>
   </div>
 </div>
