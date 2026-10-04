@@ -55,6 +55,32 @@ FEATURE_COLS = [
 ]
 
 
+# ── nombres legibles para la UI (solo presentación, no cambian columnas internas) ──
+NOMBRES_LEGIBLES = {
+    "timestamp": "Fecha y hora",
+    "P_basin": "Lluvia en la cuenca (mm/h)",
+    "Q_actual": "Escorrentía actual",
+    "Q_lag_1h": "Escorrentía hace 1 h",
+    "Q_lag_3h": "Escorrentía hace 3 h",
+    "Q_lag_6h": "Escorrentía hace 6 h",
+    "lag_1h": "Lluvia hace 1 h",
+    "lag_3h": "Lluvia hace 3 h",
+    "lag_6h": "Lluvia hace 6 h",
+    "lag_12h": "Lluvia hace 12 h",
+    "lag_24h": "Lluvia hace 24 h",
+    "roll_sum_3h": "Lluvia acumulada 3 h",
+    "roll_sum_6h": "Lluvia acumulada 6 h",
+    "roll_sum_12h": "Lluvia acumulada 12 h",
+    "roll_sum_24h": "Lluvia acumulada 24 h",
+    "roll_sum_48h": "Lluvia acumulada 48 h",
+    "roll_max_6h": "Pico de lluvia en 6 h",
+    "hora_dia": "Hora del día",
+    "mes": "Mes",
+    "proba_alerta": "Probabilidad de creciente",
+    "estado": "Estado de alerta",
+}
+
+
 # ── utilidades ────────────────────────────────────────────────────────────────
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -543,7 +569,11 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
 # ── helpers de Vista Operador ────────────────────────────────────────────────
 
 def _grafico_historico(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
-    st.subheader("Historial de lluvia y escorrentía estimada")
+    st.subheader("📈 Comportamiento histórico de la cuenca")
+    st.caption(
+        "Azul: lluvia. Morado: agua que escurre hacia la quebrada. "
+        "Puntos amarillos y rojos: momentos en que el sistema dio precaución o alerta."
+    )
 
     fecha_min = proxy["timestamp"].dt.date.min()
     fecha_max = proxy["timestamp"].dt.date.max()
@@ -577,33 +607,33 @@ def _grafico_historico(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=proxy_rango["timestamp"], y=proxy_rango["P_basin"],
-        name="P_basin (mm/h)", line=dict(color="#2980b9", width=1),
+        name="Lluvia en la cuenca (mm/h)", line=dict(color="#2980b9", width=1),
     ))
     fig.add_trace(go.Scatter(
         x=proxy_rango["timestamp"], y=proxy_rango["Q_scs_proxy"],
-        name="Q_scs_proxy (mm)", line=dict(color="#8e44ad", width=1), yaxis="y2",
+        name="Escorrentía estimada (mm)", line=dict(color="#8e44ad", width=1), yaxis="y2",
     ))
     if not precauciones.empty:
         fig.add_trace(go.Scatter(
             x=precauciones["timestamp"], y=precauciones["proba_alerta"],
-            mode="markers", name="PRECAUCIÓN",
+            mode="markers", name="Precaución",
             marker=dict(color="#f39c12", size=6, symbol="x"), yaxis="y2",
         ))
     if not alertas.empty:
         fig.add_trace(go.Scatter(
             x=alertas["timestamp"], y=alertas["proba_alerta"],
-            mode="markers", name="ALERTA",
+            mode="markers", name="Alerta",
             marker=dict(color="#e74c3c", size=6, symbol="x"), yaxis="y2",
         ))
         for ts in alertas["timestamp"].iloc[::max(1, len(alertas) // 200)]:
             fig.add_vline(x=ts, line=dict(color="red", width=0.6, dash="dot"), opacity=0.3)
 
     fig.update_layout(
-        title="P_basin (lluvia) y Q_scs_proxy (escorrentía) — marcadores = PRECAUCIÓN/ALERTA",
+        title="Lluvia, escorrentía y alertas",
         xaxis=dict(title="Fecha"),
-        yaxis=dict(title=dict(text="P_basin (mm/h)", font=dict(color="#2980b9"))),
+        yaxis=dict(title=dict(text="Lluvia en la cuenca (mm/h)", font=dict(color="#2980b9"))),
         yaxis2=dict(
-            title=dict(text="Q_scs_proxy / probabilidad", font=dict(color="#8e44ad")),
+            title=dict(text="Escorrentía estimada / probabilidad", font=dict(color="#8e44ad")),
             overlaying="y", side="right",
         ),
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
@@ -611,48 +641,71 @@ def _grafico_historico(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
     )
     st.plotly_chart(fig, use_container_width=True)
     st.caption(
-        f"Alertas en el período seleccionado: **{len(alertas)}**. "
-        "Las líneas verticales rojas se muestran submuestreadas para rendimiento."
+        f"En este período: {len(alertas)} alertas y {len(precauciones)} precauciones. "
+        "Las líneas verticales se muestran submuestreadas para rendimiento."
     )
 
 
 # ── vista operador ────────────────────────────────────────────────────────────
 
 def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
-    st.header("Vista Operador (JAC) — Diagnóstico técnico")
+    st.header("🛠️ Vista operador (JAC)")
 
-    # log reciente
-    st.subheader("Log de gateway — últimas 100 filas")
-    st.dataframe(log.tail(100), use_container_width=True)
+    # 1. Registro de lecturas recientes
+    st.subheader("📋 Registro de lecturas recientes")
+    st.caption(
+        "Las últimas 100 lecturas horarias del sistema. Cada fila muestra qué se midió "
+        "y qué estado calculó."
+    )
+    log_mostrar = log.tail(100).rename(columns=NOMBRES_LEGIBLES)
+    st.dataframe(log_mostrar, use_container_width=True)
     st.divider()
 
-    # gráfico técnico (movido desde Vista Pública)
+    # 2. Comportamiento histórico de la cuenca
     _grafico_historico(log, proxy)
     st.divider()
 
-    # métricas del modelo
-    st.subheader("Métricas del modelo (umbrales ternarios: PRECAUCIÓN ≥0.30, ALERTA ≥0.70)")
-    c1, c2, c3 = st.columns(3)
-    c1.metric(
-        "Recall clase positiva", f"{RECALL_OPERATIVO:.3f}",
-        help="De los eventos reales ¿cuántos detecta? (split test cronológico 2025-07-06 → 2026-07-09)"
-    )
-    c2.metric(
-        "Precision clase positiva", f"{PRECISION_OPERATIVA:.3f}",
-        help="De las alertas disparadas ¿cuántas son eventos reales?"
-    )
-    c3.metric(
-        "Umbrales de decisión", f"{UMBRAL_PRECAUCION} / {UMBRAL_ALERTA}",
-        help="PRECAUCIÓN ≥ 0.30 | ALERTA ≥ 0.70"
-    )
+    # 3. Confiabilidad del sistema (se actualiza en Fase 7)
+    st.subheader("🎯 Confiabilidad del sistema")
     st.caption(
-        "Métricas calculadas sobre split cronológico 82/18. "
-        "No se recalculan en vivo — fuente: `08_clasificador_6h.py`."
+        "Detectadas = de cada 100 crecientes reales, cuántas avisó el sistema. "
+        "Alertas reales = de cada 100 avisos, cuántos fueron crecientes de verdad. "
+        "Calculado sobre datos históricos que el modelo no vio al entrenar "
+        "(split cronológico 82/18). No se recalcula en vivo."
     )
+    # Placeholder para métricas de Fase 7
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric(
+            "Crecientes detectadas (desde precaución)",
+            "—",
+            help="Recall con umbral 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
+        )
+        st.metric(
+            "Crecientes detectadas (solo alerta roja)",
+            "—",
+            help="Recall con umbral 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
+        )
+    with c2:
+        st.metric(
+            "Alertas que fueron reales (desde precaución)",
+            "—",
+            help="Precisión con umbral 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
+        )
+        st.metric(
+            "Alertas rojas que fueron reales",
+            "—",
+            help="Precisión con umbral 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
+        )
     st.divider()
 
-    # feature importances
-    st.subheader("Importancia de variables — clf_6h.joblib")
+    # 4. Qué factores pesan más en la alerta
+    st.subheader("🔍 ¿Qué factores pesan más en la alerta?")
+    st.caption(
+        "La lluvia acumulada de las últimas 24–48 horas es la señal más importante. "
+        "Un aguacero puntual sin antecedentes genera menos riesgo que lluvia "
+        "sostenida por días."
+    )
     try:
         importancias = dict(zip(FEATURE_COLS, modelo.feature_importances_))
         df_imp = (
@@ -661,26 +714,38 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
             )
             .sort_values("importance", ascending=True)
         )
+        # Renombrar features para la visualización
+        df_imp["feature_legible"] = df_imp["feature"].map(NOMBRES_LEGIBLES).fillna(df_imp["feature"])
         fig_imp = go.Figure(go.Bar(
             x=df_imp["importance"],
-            y=df_imp["feature"],
+            y=df_imp["feature_legible"],
             orientation="h",
             marker_color="#2980b9",
         ))
         fig_imp.update_layout(
             height=500,
-            title="Feature importance (RandomForestClassifier, class_weight=balanced)",
-            margin=dict(l=160),
-            xaxis_title="Importancia",
+            title="Peso de cada factor en la decisión del modelo",
+            margin=dict(l=220),
+            xaxis_title="Importancia relativa",
         )
         st.plotly_chart(fig_imp, use_container_width=True)
+        with st.expander("Detalle técnico"):
+            st.write(
+                "Modelo: RandomForestClassifier(n_estimators=200, random_state=42, "
+                "class_weight='balanced') — archivo: simulate/models/clf_6h.joblib"
+            )
+            st.write("Features usadas:", ", ".join(FEATURE_COLS))
     except Exception as exc:
         st.warning(f"No se pudo graficar importancias: {exc}")
 
     st.divider()
 
-    # inspección por fecha
-    st.subheader("Inspección de punto histórico")
+    # 5. Consultar un momento específico
+    st.subheader("🔎 Consultar un momento específico")
+    st.caption(
+        "Elegí una fecha y hora para ver qué datos recibió el sistema en ese momento "
+        "y qué estado calculó."
+    )
     fecha_min_log = log["timestamp"].dt.date.min()
     fecha_max_log = log["timestamp"].dt.date.max()
 
@@ -698,27 +763,28 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
         return
 
     opciones_hora = log_dia["timestamp"].dt.strftime("%H:%M").tolist()
-    hora_sel = st.selectbox("Hora (UTC-5 local)", opciones_hora, key="hora_inspeccion")
+    hora_sel = st.selectbox("Hora (hora local)", opciones_hora, key="hora_inspeccion")
 
     fila = log_dia[log_dia["timestamp"].dt.strftime("%H:%M") == hora_sel].iloc[0]
 
     col_a, col_b = st.columns(2)
     with col_a:
-        st.markdown(f"**Timestamp:** `{fila['timestamp']}`")
-        st.markdown(f"**Estado:** `{fila['estado']}`")
-        st.markdown(f"**Probabilidad:** `{fila['proba_alerta']:.4f}`")
+        st.markdown(f"**Fecha y hora:** `{fila['timestamp']}`")
+        st.markdown(f"**Estado de alerta:** `{fila['estado']}`")
+        st.markdown(f"**Probabilidad de creciente:** `{fila['proba_alerta']:.4f}`")
 
     with col_b:
         cols_mostrar = [c for c in ["P_basin", "Q_actual", "Q_lag_1h", "roll_sum_24h", "hora_dia", "mes"]
                         if c in fila.index]
         if cols_mostrar:
-            st.dataframe(
-                pd.DataFrame([{c: round(float(fila[c]), 6) for c in cols_mostrar}])
-                .T.rename(columns={0: "valor"}),
-                use_container_width=True,
-            )
+            df_vals = pd.DataFrame([{c: round(float(fila[c]), 6) for c in cols_mostrar}])
+            df_vals = df_vals.T.rename(columns={0: "Valor"})
+            df_vals.index = df_vals.index.map(NOMBRES_LEGIBLES).fillna(df_vals.index)
+            st.dataframe(df_vals, use_container_width=True)
 
     st.divider()
+
+    # 6. Simulador
     _simulador_modelo(modelo)
 
 
@@ -744,11 +810,10 @@ _ESCENARIOS = {
 
 
 def _simulador_modelo(modelo) -> None:
-    st.subheader("Probar el modelo — simulador interactivo")
+    st.subheader("🧪 Simular un escenario de lluvia")
     st.caption(
-        "Introduce valores hipotéticos de lluvia y caudal para ver cómo responde "
-        "el clasificador en tiempo real. Los campos derivados (lag_12h, Q_lags, etc.) "
-        "se aproximan automáticamente a partir de los sliders."
+        "Ingresá condiciones hipotéticas para ver cómo respondería el sistema. Útil "
+        "para entender cuándo se activa cada estado."
     )
 
     # ── escenarios rápidos ────────────────────────────────────────────────
@@ -761,14 +826,14 @@ def _simulador_modelo(modelo) -> None:
     # ── sliders ───────────────────────────────────────────────────────────
     col1, col2 = st.columns(2)
     with col1:
-        lag_1h  = st.slider("Lluvia última hora  (lag_1h) mm",  0.0, 50.0, step=0.5, key="sim_lag_1h")
-        lag_3h  = st.slider("Lluvia últimas 3h   (lag_3h) mm",  0.0, 50.0, step=0.5, key="sim_lag_3h")
-        lag_6h  = st.slider("Lluvia últimas 6h   (lag_6h) mm",  0.0, 50.0, step=0.5, key="sim_lag_6h")
-        q_act   = st.number_input("Q actual (proxy nivel, mm)", min_value=0.0, max_value=20.0, step=0.1, key="sim_Q")
+        lag_1h  = st.slider("Lluvia en la última hora (mm)",  0.0, 50.0, step=0.5, key="sim_lag_1h")
+        lag_3h  = st.slider("Lluvia en las últimas 3 horas (mm)",  0.0, 50.0, step=0.5, key="sim_lag_3h")
+        lag_6h  = st.slider("Lluvia en las últimas 6 horas (mm)",  0.0, 50.0, step=0.5, key="sim_lag_6h")
+        q_act   = st.number_input("Escorrentía actual (mm)", min_value=0.0, max_value=20.0, step=0.1, key="sim_Q")
     with col2:
-        roll12  = st.slider("Acum. 12h (roll_sum_12h) mm", 0.0, 50.0, step=0.5, key="sim_roll12")
-        roll24  = st.slider("Acum. 24h (roll_sum_24h) mm", 0.0, 50.0, step=0.5, key="sim_roll24")
-        roll48  = st.slider("Acum. 48h (roll_sum_48h) mm", 0.0, 50.0, step=0.5, key="sim_roll48")
+        roll12  = st.slider("Lluvia acumulada 12 h (mm)", 0.0, 50.0, step=0.5, key="sim_roll12")
+        roll24  = st.slider("Lluvia acumulada 24 h (mm)", 0.0, 50.0, step=0.5, key="sim_roll24")
+        roll48  = st.slider("Lluvia acumulada 48 h (mm)", 0.0, 50.0, step=0.5, key="sim_roll48")
 
     # ── features derivadas (aproximación) ────────────────────────────────
     ahora = pd.Timestamp.now()
@@ -793,7 +858,7 @@ def _simulador_modelo(modelo) -> None:
         "mes":           float(ahora.month),
     }
 
-    if st.button("Calcular predicción", type="primary"):
+    if st.button("Simular", type="primary"):
         x_df = pd.DataFrame([x_vec])[FEATURE_COLS]
         proba = float(modelo.predict_proba(x_df)[0, 1])
         estado_pred = clasificar_estado(proba)
@@ -802,8 +867,9 @@ def _simulador_modelo(modelo) -> None:
             unsafe_allow_html=True,
         )
         st.caption(
-            f"Probabilidad bruta: **{proba:.4f}** — umbrales: PRECAUCIÓN ≥{UMBRAL_PRECAUCION}, ALERTA ≥{UMBRAL_ALERTA}. "
-            "Las features derivadas son aproximaciones; en producción se calculan de la serie real."
+            f"Probabilidad calculada: {proba:.1%}. "
+            "Verde menos de 30% · Amarillo 30–70% · Rojo 70% o más. "
+            "Los valores intermedios se aproximan a partir de los controles."
         )
 
 
