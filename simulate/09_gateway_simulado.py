@@ -38,7 +38,17 @@ LOG_PATH = DATA_PROCESSED_DIR / "log_gateway_simulado.csv"
 LOW_QUALITY_MIN_ESTACIONES = 2
 EPSILON = 1e-6
 N_VALIDACION_TS = 500
-UMBRAL_ALERTA = 0.20
+UMBRAL_PRECAUCION = 0.30
+UMBRAL_ALERTA = 0.70
+
+
+def clasificar_estado_ternario(proba: float) -> str:
+    """Sistema ternario de alertas: NORMAL / PRECAUCIÓN / ALERTA."""
+    if proba >= UMBRAL_ALERTA:
+        return "ALERTA"
+    elif proba >= UMBRAL_PRECAUCION:
+        return "PRECAUCIÓN"
+    return "NORMAL"
 
 
 def cargar_entradas():
@@ -205,7 +215,7 @@ def _procesar_lote(modelo, feature_cols, lote_x, lote_meta, logs):
     probas = modelo.predict_proba(x_df)[:, 1]
 
     for meta, proba in zip(lote_meta, probas):
-        estado = "ALERTA_6H" if float(proba) > UMBRAL_ALERTA else "NORMAL"
+        estado = clasificar_estado_ternario(float(proba))
         registro = {
             "timestamp": meta["timestamp"],
             "P_basin": meta["P_basin"],
@@ -293,9 +303,9 @@ def main():
     log.to_csv(LOG_PATH, index=False)
     print(f"Log guardado: {LOG_PATH}")
 
-    total_alertas = int((log["estado"] == "ALERTA_6H").sum())
+    total_alertas = int((log["estado"] == "ALERTA").sum())
     total_normal = int((log["estado"] == "NORMAL").sum())
-    print(f"Total ALERTA_6H: {total_alertas}")
+    print(f"Total ALERTA: {total_alertas}")
     print(f"Total NORMAL: {total_normal}")
 
     dist_anual = (
@@ -319,7 +329,7 @@ def main():
     print("\n=== PASO 5 - Verificacion de archivo guardado ===")
     check = pd.read_csv(LOG_PATH, parse_dates=["timestamp"])
     print(f"Lectura real de log: filas={len(check)}")
-    print(f"ALERTA_6H en archivo: {(check['estado'] == 'ALERTA_6H').sum()}")
+    print(f"ALERTA en archivo: {(check['estado'] == 'ALERTA').sum()}")
 
 
 if __name__ == "__main__":
