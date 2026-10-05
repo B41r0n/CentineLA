@@ -215,14 +215,20 @@ def verificar_salida(path_out):
 
 def main():
     print("=== PASO 0 - Inspeccion ===")
-    for path in HISTORICO_FILES:
-        if not path.exists():
-            raise FileNotFoundError(f"No existe el archivo esperado: {path}")
+    archivos_existentes = [p for p in HISTORICO_FILES if p.exists()]
+    archivos_faltantes = [p for p in HISTORICO_FILES if not p.exists()]
+    for p in archivos_faltantes:
+        print(f"AVISO: no existe {p.name} - se omite esta estacion (ej. Pajarito suspendida).")
+    if not archivos_existentes:
+        raise FileNotFoundError(
+            "No hay ningun archivo historico en data/raw/ - revisa la conexion con IDEAM."
+        )
+    for path in archivos_existentes:
         inspeccionar_csv(path)
 
     print("\n=== PASO 1 - Limpieza por estacion ===")
     hourly_series = {}
-    for path in HISTORICO_FILES:
+    for path in archivos_existentes:
         meta = STATION_META[path.name]
         hourly_series[meta["nombre"]] = cargar_estacion(path)
 
