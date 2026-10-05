@@ -21,7 +21,10 @@ print(f"  ref_fecha (de proxy.max, NO del reloj): {ref_fecha}")
 print(f"  ult_24h = {ult_24h:.3f}  (0.0 = genuinamente sin lluvia el ultimo dia)")
 print(f"  ult_30d = {ult_30d:.3f}  (no 0 -> ventana de 30d captura algo de lluvia)")
 print(f"  anio    = {anio_mm:.3f}  (acumulado del anio en curso)")
-assert ref_fecha == "2026-07-09", "debe usar proxy max, no sistema"
+assert isinstance(ref_fecha, str) and len(ref_fecha) == 10 and ref_fecha[4] == "-" and ref_fecha[7] == "-", \
+    f"ref_fecha debe ser YYYY-MM-DD, se obtuvo: {ref_fecha}"
+assert ref_fecha == str(proxy["timestamp"].max().date()), \
+    "ref_fecha debe coincidir con proxy.max(), no con una fecha fija"
 assert ult_24h >= 0 and ult_30d >= 0 and anio_mm > 0, "año debe ser >0"
 print("  OK: rolling windows correctos, ref_fecha es proxy.max(), anio > 0")
 
