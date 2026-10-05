@@ -716,14 +716,19 @@ def _grafico_historico(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
                 fig.add_vline(x=ts, line=dict(color="rgba(231,76,60,.5)", width=0.6, dash="dot"), opacity=0.3)
 
         fig.update_layout(
-            title="Lluvia, escorrentía y alertas",
+            title=dict(
+                text="Lluvia, escorrentía y alertas",
+                y=0.98, yanchor="top", x=0, xanchor="left",
+                font=dict(size=16),
+            ),
             xaxis=dict(title="Fecha"),
             yaxis=dict(title=dict(text="Lluvia en la cuenca (mm/h)", font=dict(color="#3498db"))),
             yaxis2=dict(
                 title=dict(text="Escorrentía estimada / probabilidad", font=dict(color="#a569bd")),
                 overlaying="y", side="right",
             ),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            legend=dict(orientation="h", yanchor="bottom", y=1.14, x=0),
+            margin=dict(t=90, b=40, l=60, r=60),
             height=480,
         )
         _estilo_plotly(fig)
