@@ -664,10 +664,11 @@ def _grafico_historico(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
 
         fecha_min = proxy["timestamp"].dt.date.min()
         fecha_max = proxy["timestamp"].dt.date.max()
-        valor_inicial = (
+        fecha_inicio_default = max(
+            fecha_min,
             (pd.Timestamp(fecha_max) - pd.Timedelta(days=90)).date(),
-            fecha_max,
         )
+        valor_inicial = (fecha_inicio_default, fecha_max)
 
         rango = st.date_input(
             "Rango de fechas",
