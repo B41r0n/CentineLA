@@ -995,6 +995,8 @@ CSS_GLOBAL = """
 [data-testid="stMainBlockContainer"]{padding-top:1.5rem;max-width:1400px}
 [data-testid="stSidebarUserContent"]{padding-top:.25rem;overflow:visible}
 [data-testid="stSidebarHeader"]{padding-bottom:0}
+[data-testid="stMarkdownContainer"]{overflow:visible}
+[data-testid="stMarkdown"]{overflow:visible}
 h2,h3{font-weight:600!important;letter-spacing:-.01em}
 .cl-card{background:var(--cl-card);border:1px solid var(--cl-border);border-radius:16px;padding:18px 20px}
 [class*="st-key-card-"]{background:var(--cl-card);border-radius:16px}
@@ -1062,9 +1064,9 @@ def render_header(estado: str, ultima_lectura: str) -> None:
     """Renderiza el header con logo, título, subtítulos y badges (pills)."""
     st.markdown(
         f"""
-<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">
+<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;overflow:visible">
   <div style="display:flex;align-items:center;gap:8px;overflow:visible">
-    <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="44" height="56" style="flex-shrink:0;object-fit:contain" alt="CentineLA logo">
+    <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="44" height="56" style="flex-shrink:0;object-fit:contain;display:block;vertical-align:middle" alt="CentineLA logo">
     <div style="font-size:44px;font-weight:500;letter-spacing:-1px;color:#3498db;line-height:1;white-space:nowrap;flex-shrink:1;min-width:0">
       Centine<span style="color:#e74c3c">LA</span>
     </div>
@@ -1172,7 +1174,7 @@ def main() -> None:
     st.sidebar.markdown(
         f"""
 <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;justify-content:flex-start;overflow:visible">
-  <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="76" height="95" style="flex-shrink:0;object-fit:contain" alt="CentineLA logo">
+  <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="76" height="95" style="flex-shrink:0;object-fit:contain;display:block;vertical-align:middle" alt="CentineLA logo">
   <div style="font-size:38px;font-weight:500;letter-spacing:-1px;color:#3498db;line-height:1;white-space:nowrap;flex-shrink:1;min-width:0">
     Centine<span style="color:#e74c3c">LA</span>
   </div>
