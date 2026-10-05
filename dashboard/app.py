@@ -1019,9 +1019,7 @@ h2,h3{font-weight:600!important;letter-spacing:-.01em}
 _LOGO_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="44" height="56" viewBox="0 0 44 56">'
     '<path d="M22 2 C22 2 4 24 4 38 C4 48 12 54 22 54 C32 54 40 48 40 38 C40 24 22 2 22 2 Z" fill="#3498db"/>'
-    '<ellipse cx="15" cy="30" rx="3.5" ry="7" fill="#ffffff" opacity="0.28" transform="rotate(-15 15 30)"/>'
-    '<path d="M16 40 Q22 34 28 40" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.9"/>'
-    '<path d="M12 45 Q22 35 32 45" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" opacity="0.55"/>'
+    '<ellipse cx="16" cy="26" rx="4" ry="8" fill="#ffffff" opacity="0.30" transform="rotate(-18 16 26)"/>'
     '</svg>'
 )
 _LOGO_B64 = base64.b64encode(_LOGO_SVG.encode("utf-8")).decode("ascii")
