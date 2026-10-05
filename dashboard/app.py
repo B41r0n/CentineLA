@@ -1001,6 +1001,11 @@ CSS_GLOBAL = """
 h2,h3{font-weight:600!important;letter-spacing:-.01em}
 .cl-card{background:var(--cl-card);border:1px solid var(--cl-border);border-radius:16px;padding:18px 20px}
 [class*="st-key-card-"]{background:var(--cl-card);border-radius:16px}
+div[data-testid="stHorizontalBlock"]:has(.st-key-card-hero){align-items:stretch}
+div[data-testid="stHorizontalBlock"]:has(.st-key-card-hero) [data-testid="column"]{display:flex}
+div[data-testid="stHorizontalBlock"]:has(.st-key-card-hero) [data-testid="column"]>div{width:100%}
+div[data-testid="stHorizontalBlock"]:has(.st-key-card-hero) [data-testid="stVerticalBlockBorderWrapper"]{height:100%;display:flex;flex-direction:column}
+div[data-testid="stHorizontalBlock"]:has(.st-key-card-hero) [data-testid="stVerticalBlockBorderWrapper"]>div{flex:1}
 .cl-chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:8px 0 16px}
 .cl-chip{background:var(--cl-card);border:1px solid var(--cl-border);border-radius:12px;padding:10px 14px}
 .cl-chip .k{font-size:11px;color:var(--cl-muted);text-transform:uppercase;letter-spacing:.06em}
