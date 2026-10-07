@@ -402,6 +402,9 @@ def _hero_html(estado: str, proba: float, ultima_ts_str: str) -> str:
   <div style="text-align:center;font-size:12px;color:var(--cl-muted);margin-top:8px">
     Semáforo calculado con la última lectura disponible ({ultima_ts_str}).
   </div>
+  <div style="text-align:center;font-size:11px;color:var(--cl-muted);margin-top:4px;font-style:italic">
+    Basado en lluvia regional (proxy); aún sin confirmación de sensores físicos en el cauce — hardware pendiente de instalación.
+  </div>
 </div>
 """)
 
@@ -418,6 +421,9 @@ def _estado_semaforo_html(estado: str, proba: float) -> str:
   {_gauge_html(proba)}
   <div style="font-size:11px;color:var(--cl-muted)">
     Verde < 30% · Amarillo 30–70% · Rojo ≥ 70%
+  </div>
+  <div style="text-align:center;font-size:11px;color:var(--cl-muted);margin-top:4px;font-style:italic">
+    Basado en lluvia regional (proxy); aún sin confirmación de sensores físicos en el cauce — hardware pendiente de instalación.
   </div>
 </div>
 """)
