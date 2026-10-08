@@ -12,6 +12,7 @@ import io
 import math
 import os
 import sys
+import textwrap
 from pathlib import Path
 
 import joblib
@@ -928,6 +929,195 @@ _ESCENARIOS = {
 }
 
 
+# ── contenido de la guía del proyecto ─────────────────────────────────────────
+
+_GUIA_STATS = [
+    {"valor": "6 h", "etiqueta": "anticipación"},
+    {"valor": "2", "etiqueta": "estaciones IDEAM activas"},
+    {"valor": "43,068", "etiqueta": "horas de datos útiles (2016–2026)"},
+    {"valor": "71.5%", "etiqueta": "detección en amarillo"},
+    {"valor": "86.1%", "etiqueta": "precisión en rojo"},
+    {"valor": "18", "etiqueta": "variables del modelo"},
+]
+
+_GUIA_PIPELINE = [
+    {
+        "num": 1,
+        "titulo": "Lluvia",
+        "desc": "Estaciones oficiales del IDEAM, datos abiertos",
+        "estado": "Operando hoy",
+        "icono": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 3.2 14.2C1.4 12.4 1 10 2.5 8s4-3 6-2a6 6 0 0 1 11.5 2.2"/></svg>""",
+    },
+    {
+        "num": 2,
+        "titulo": "Proxy hidrológico",
+        "desc": "Estima cuánta agua escurre hacia la quebrada (método SCS-CN)",
+        "estado": "Operando hoy",
+        "icono": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.7a6 6 0 0 1 6 6c0 3.3-6 12.3-6 12.3S6 12 6 8.7a6 6 0 0 1 6-6Z"/></svg>""",
+    },
+    {
+        "num": 3,
+        "titulo": "Modelo predictivo",
+        "desc": "Probabilidad de riesgo a 6 horas (Random Forest)",
+        "estado": "Operando hoy",
+        "icono": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z"/><path d="M12 6v6l4 2"/></svg>""",
+    },
+    {
+        "num": 4,
+        "titulo": "Semáforo y tablero",
+        "desc": "Vista pública y vista operador para la JAC",
+        "estado": "Operando hoy",
+        "icono": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>""",
+    },
+    {
+        "num": 5,
+        "titulo": "Nodos en el cauce y alertas",
+        "desc": "Sensores de nivel, cámara, semáforo, sirena, WhatsApp comunitario y DAGRD",
+        "estado": "Siguiente fase",
+        "icono": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 4-6 9-6 9S6 13 6 9Z"/><circle cx="12" cy="9" r="2"/></svg>""",
+    },
+]
+
+_GUIA_VISTAS = [
+    {
+        "titulo": "Vista pública",
+        "items": ["Semáforo de riesgo", "Probabilidad de creciente", "Lluvia acumulada", "Mapa de la quebrada", "Calendario de alertas de 90 días"],
+    },
+    {
+        "titulo": "Vista operador (JAC)",
+        "items": ["Registro de lecturas", "Histórico de la cuenca", "Métricas de confiabilidad", "Importancia de variables", "Simulador de escenarios"],
+    },
+]
+
+_GUIA_TECH_CHIPS = [
+    "Python", "scikit-learn", "Streamlit", "Folium", "SQLite",
+    "API Socrata (datos.gov.co)", "GitHub",
+]
+
+_GUIA_PROD_URL = "https://centinela-s4h6yg7ppapp2udzgrugdgt.streamlit.app/"
+
+_GUIA_REPO = """CentineLA/
+├─ dashboard/        app.py (tablero Streamlit) · _check_fixes.py
+├─ simulate/         04 proxy SCS-CN · 05 validación · 06 variables
+│                    07–08 modelo · 09 gateway simulado · 10 métricas
+│                    11 actualizar ahora
+├─ scripts/          01 estaciones · 02 descarga histórica del IDEAM
+├─ data/processed/   datasets y proxy horario
+├─ .streamlit/       tema oscuro
+└─ README.md · LICENSE (MIT) · requirements.txt"""
+
+_GUIA_FAQ = [
+    {
+        "cat": "El proyecto",
+        "q": "¿Qué problema resuelve CentineLA?",
+        "simple": "La Quebrada La Honda, en la Comuna 4 Aranjuez de Medellín, no tiene un sistema de alerta temprana instrumentado y ha tenido crecientes súbitas (1996, 2022 y abril de 2026). CentineLA busca avisar con horas de anticipación para que la comunidad pueda reaccionar.",
+        "tecnico": "En 1996 el evento dejó cerca de 260 personas damnificadas y 17 heridos. El DAGRD ya opera alertas en otras quebradas de la misma comuna (La Rosa y La Bermejala), pero no en La Honda.",
+    },
+    {
+        "cat": "El proyecto",
+        "q": "¿Cómo funciona, en pocas palabras?",
+        "simple": "Toma la lluvia que reportan estaciones oficiales del IDEAM, estima cuánta agua escurre hacia la quebrada y un modelo calcula la probabilidad de que eso ocurra en las próximas 6 horas. Se muestra como un semáforo.",
+        "tecnico": "API Socrata del IDEAM (dataset s54a-sgyg) → promedio de lluvia de la cuenca → proxy SCS-CN → 18 variables (lluvia acumulada de 3 a 48 h, escorrentía, hora y mes) → RandomForestClassifier → bandas de probabilidad.",
+    },
+    {
+        "cat": "El proyecto",
+        "q": "¿Qué significan verde, amarillo y rojo?",
+        "simple": "NORMAL (verde): sin señales de riesgo. PRECAUCIÓN (amarillo): conviene vigilar. ALERTA (rojo): probabilidad alta de lluvia suficiente para generar escorrentía importante en las próximas 6 horas.",
+        "tecnico": "Bandas: &lt;0.30 NORMAL · 0.30–0.70 PRECAUCIÓN · ≥0.70 ALERTA.",
+    },
+    {
+        "cat": "El proyecto",
+        "q": "¿Quién lo desarrolló y es un sistema oficial?",
+        "simple": "Es un prototipo académico de Bairon Nicolás Calle Rivera (Gestión de Redes de Telecomunicaciones, ITM) para Territorio INN 2026, Reto #7. No reemplaza los protocolos oficiales de gestión del riesgo: busca apoyarlos.",
+        "tecnico": "Código abierto con licencia MIT, disponible en GitHub.",
+    },
+    {
+        "cat": "Datos y modelo",
+        "q": "¿De dónde salen los datos?",
+        "simple": "De estaciones oficiales del IDEAM, publicadas como datos abiertos de Colombia.",
+        "tecnico": "Dataset s54a-sgyg. Activas: Metromedellín (0027015310) y Olaya Herrera, sensor 240 (0027015330). Pajarito (0027015290) está suspendida desde 2020 y se excluye. Histórico 2016–2026: 83,458 registros horarios, 43,068 utilizables tras los filtros de calidad.",
+    },
+    {
+        "cat": "Datos y modelo",
+        "q": "¿La lluvia que se usa es la de la quebrada?",
+        "simple": "No exactamente: no hay estaciones oficiales dentro de la microcuenca, así que se usan las más cercanas como aproximación.",
+        "tecnico": "Están entre 5.7 y 6.7 km. Es un proxy regional, limitación documentada. Se solicitó información instrumental adicional al Área Metropolitana del Valle de Aburrá (SIATA).",
+    },
+    {
+        "cat": "Datos y modelo",
+        "q": "¿Qué es el método SCS-CN y de dónde sale el 81.1?",
+        "simple": "Es un método estándar que estima cuánta lluvia se convierte en agua que escurre, según el suelo y el uso del terreno. El valor para La Honda es una estimación de ingeniería, no una medición oficial.",
+        "tecnico": "Reparto de área 40/30/30 (tramo alto/medio/bajo) con CN típicos 70/92/85 y suelo tipo C asumido → CN compuesto 81.1. Variar los CN por tramo ±10% mueve el CN compuesto ±3.1–3.5%. Método: USDA NRCS (2004).",
+    },
+    {
+        "cat": "Datos y modelo",
+        "q": "¿Qué predice exactamente el modelo?",
+        "simple": "La probabilidad de que dentro de 6 horas la cuenca esté en condición de escurrir agua de forma importante, es decir, que la lluvia acumulada de 24 horas supere lo que el terreno alcanza a absorber.",
+        "tecnico": "Clase positiva = escorrentía SCS-CN a 6 h &gt; 0, equivalente a lluvia acumulada en 24 h por encima de ~11.8 mm (abstracción inicial con CN 81.1). Entrenamiento: 3,138 horas positivas de 35,315. Prueba: 417 de 9,051.",
+    },
+    {
+        "cat": "Datos y modelo",
+        "q": "¿Qué tan confiable es?",
+        "simple": "En pruebas con datos que el modelo no vio al entrenar, el nivel amarillo detecta cerca de 7 de cada 10 situaciones de riesgo y, cuando se activa el rojo, acierta cerca de 9 de cada 10 veces.",
+        "tecnico": "Validación cronológica 80/20 (corte 2025-07-06 15:00; prueba hasta 2026-09-30). Umbral ≥0.30: recall 71.5% · precisión 49.7%. Umbral ≥0.70: recall 54.9% · precisión 86.1%. Las métricas son frente al proxy hidrológico.",
+    },
+    {
+        "cat": "Datos y modelo",
+        "q": "¿Por qué prefieren avisar de más que de menos?",
+        "simple": "Una falsa alarma cuesta un aviso de más; una creciente sin aviso puede costar vidas. Por eso el amarillo se diseñó para detectar la mayor cantidad posible de situaciones de riesgo.",
+        "tecnico": "El umbral bajo (0.30) prioriza recall; el alto (0.70) prioriza precisión para que el rojo sea más confiable.",
+    },
+    {
+        "cat": "Datos y modelo",
+        "q": "¿Por qué puede marcar alerta alta solo con lluvia?",
+        "simple": "Porque hoy CentineLA mide riesgo por lluvia: con unos 22 mm acumulados en un día ya se supera casi al doble el umbral en que el terreno empieza a escurrir. Los sensores en el cauce, de la siguiente fase, servirán para confirmar el nivel real antes de escalar una alerta.",
+        "tecnico": "El diseño completo exige al menos 2 señales críticas simultáneas (modelo + sensor físico de nivel o turbidez) para una alerta roja confirmada. Las variables más influyentes: lluvia acumulada 24 h (20.6%) y 48 h (12.8%). La probabilidad refleja la confianza dentro de la definición del modelo, no una medición del nivel del agua.",
+    },
+    {
+        "cat": "Datos y modelo",
+        "q": "¿Ya se validó contra crecientes reales?",
+        "simple": "Aún no: es el siguiente paso. Las crecientes documentadas son contexto del proyecto; faltan registros oficiales de nivel para contrastar el modelo con lo que realmente ocurrió.",
+        "tecnico": "Se solicitó al Área Metropolitana (SIATA) series de nivel y caudal y el registro de los eventos de 1996 y abril de 2026. Con esos datos se podría calibrar el proxy y ampliar la validación.",
+    },
+    {
+        "cat": "Plataforma",
+        "q": "¿Ya hay sensores instalados en la quebrada?",
+        "simple": "Todavía no. Hoy funciona completa la parte de datos, predicción y tablero; los nodos físicos son la siguiente fase.",
+        "tecnico": "Diseño: nodos ESP32 cada ~500 m con sensor de nivel ultrasónico, turbidez, cámara, semáforo LED y sirena con panel solar, conectados por LoRa a un gateway Raspberry Pi 4. Un gateway simulado valida que la inferencia en streaming coincide con la de lote (tolerancia 1e-6, 500 marcas de tiempo aleatorias). Instalar requiere visita de campo y coordinación con la Secretaría de Medio Ambiente.",
+    },
+    {
+        "cat": "Plataforma",
+        "q": "¿Los puntos del mapa son donde irán los sensores?",
+        "simple": "No, son ilustrativos: representan los tres tramos de la quebrada (alto, medio y bajo). La ubicación real se define con visita de campo.",
+        "tecnico": "3 puntos de referencia y 5 nodos interpolados entre ellos, sin coordenadas GPS de campo.",
+    },
+    {
+        "cat": "Plataforma",
+        "q": "¿Por qué está en Streamlit?",
+        "simple": "Para que cualquiera abra el tablero desde el navegador, sin instalar nada, y para poder mejorarlo rápido.",
+        "tecnico": "Streamlit permite construir el tablero en Python, el mismo lenguaje del modelo. Se despliega en Streamlit Community Cloud conectado a GitHub: cada cambio al código se publica solo. Plan gratuito.",
+    },
+    {
+        "cat": "Plataforma",
+        "q": "¿Por qué a veces los datos vuelven a una fecha anterior?",
+        "simple": "La versión gratuita se \"duerme\" cuando nadie la usa y al despertar carga los datos guardados en el repositorio. El botón Actualizar ahora trae los más recientes del IDEAM.",
+        "tecnico": "El plan gratuito no tiene disco persistente: la base SQLite se reconstruye desde los CSV del repositorio. Una base externa o una actualización programada (GitHub Actions) lo resolvería; queda como mejora.",
+    },
+    {
+        "cat": "Alcance",
+        "q": "¿Se puede replicar en otras quebradas?",
+        "simple": "Sí. La arquitectura sirve para otras microcuencas con estaciones cercanas; cada una necesita sus propios parámetros.",
+        "tecnico": "Cada cuenca requiere su CN, parámetros morfométricos y validación con eventos documentados.",
+    },
+    {
+        "cat": "Alcance",
+        "q": "¿Qué sigue?",
+        "simple": "Instalar un nodo piloto, validar con datos reales de nivel y conectar los avisos a la comunidad y al DAGRD.",
+        "tecnico": "Incorporar la respuesta del SIATA como validación o variable nueva; evaluar regresión sobre variable continua si crece el volumen de datos; canal de aviso por WhatsApp comunitario y DAGRD.",
+    },
+]
+
+
 def _simulador_modelo(modelo) -> None:
     st.subheader("🧪 Simular un escenario de lluvia")
     st.caption(
@@ -992,6 +1182,202 @@ def _simulador_modelo(modelo) -> None:
         )
 
 
+
+
+def _guia_block(html: str) -> str:
+    return "\n".join(line for line in textwrap.dedent(html).splitlines() if line.strip())
+
+
+_GUIA_CSS = _guia_block("""
+<style>
+.cl-guia {
+  color:#e8ecf1;
+  background:
+    radial-gradient(circle at 8% 12%, rgba(52,152,219,.12), transparent 30%),
+    radial-gradient(circle at 92% 88%, rgba(231,76,60,.07), transparent 30%),
+    #0b0d11;
+  padding:2px;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+}
+.cl-guia a {color:#3498db;text-decoration:none}
+.cl-guia a:hover {text-decoration:underline}
+.cl-guia-hero {display:flex;align-items:center;gap:16px;padding:22px;border-radius:16px;background:linear-gradient(145deg, rgba(52,152,219,.10), rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.08);box-shadow:0 10px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);margin-bottom:20px}
+.cl-guia-hero img {width:64px;height:80px;object-fit:contain;flex-shrink:0}
+.cl-guia-hero-title {font-size:32px;font-weight:700;letter-spacing:-.02em;color:#e8ecf1;line-height:1}
+.cl-guia-hero-title span {color:#e74c3c}
+.cl-guia-hero-tag {font-size:13px;color:#8b95a5;margin-top:6px}
+.cl-guia-stats {display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin:18px 0}
+.cl-guia-stat {text-align:center;padding:16px;border-radius:16px;background:linear-gradient(145deg, rgba(52,152,219,.10), rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.08);box-shadow:0 10px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);transition:transform .2s ease,border-color .2s ease}
+.cl-guia-stat:hover {transform:translateY(-3px);border-color:#3498db;box-shadow:0 0 18px rgba(52,152,219,.15)}
+.cl-guia-stat-val {font-size:28px;font-weight:700;background:linear-gradient(90deg,#3498db,#5dade2);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.cl-guia-stat-lbl {font-size:11px;color:#8b95a5;text-transform:uppercase;letter-spacing:.08em;margin-top:6px}
+.cl-guia-section-title {font-size:18px;font-weight:600;margin:24px 0 12px;color:#e8ecf1}
+.cl-guia-pipeline {display:flex;align-items:stretch;justify-content:center;gap:8px;margin:18px 0;flex-wrap:wrap}
+.cl-guia-node {flex:1 1 140px;min-width:140px;max-width:200px;text-align:center;padding:16px 10px;border-radius:16px;background:linear-gradient(145deg, rgba(52,152,219,.10), rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.08);box-shadow:0 10px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);position:relative;transition:transform .2s ease,border-color .2s ease}
+.cl-guia-node:hover {transform:translateY(-3px);border-color:#3498db;box-shadow:0 0 18px rgba(52,152,219,.15)}
+.cl-guia-node-num {width:28px;height:28px;margin:0 auto 10px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;background:linear-gradient(135deg,#3498db,#2980b9)}
+.cl-guia-node-icon {width:28px;height:28px;margin:0 auto 8px;color:#3498db}
+.cl-guia-node-icon svg {width:100%;height:100%}
+.cl-guia-node-title {font-size:13px;font-weight:600;color:#e8ecf1}
+.cl-guia-node-desc {font-size:11px;color:#8b95a5;margin-top:4px;line-height:1.3}
+.cl-guia-badge {display:inline-flex;align-items:center;gap:5px;margin-top:10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:4px 8px;border-radius:999px}
+.cl-guia-badge-ok {background:rgba(46,204,113,.15);color:#2ecc71;border:1px solid rgba(46,204,113,.3)}
+.cl-guia-badge-next {background:transparent;color:#f39c12;border:1px dashed rgba(243,156,18,.5)}
+.cl-guia-pulse {width:6px;height:6px;border-radius:50%;background:#2ecc71;box-shadow:0 0 0 0 rgba(46,204,113,.7);animation:cl-guia-pulse 1.8s infinite}
+@keyframes cl-guia-pulse {0%{transform:scale(.95);box-shadow:0 0 0 0 rgba(46,204,113,.7)}70%{transform:scale(1);box-shadow:0 0 0 6px rgba(46,204,113,0)}100%{transform:scale(.95);box-shadow:0 0 0 0 rgba(46,204,113,0)}}
+.cl-guia-conn {width:24px;height:2px;background:linear-gradient(90deg,#3498db,#1abc9c);align-self:center;opacity:.5;border-radius:1px}
+.cl-guia-cards {display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin:18px 0}
+.cl-guia-card {padding:18px;border-radius:16px;background:linear-gradient(145deg, rgba(52,152,219,.10), rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.08);box-shadow:0 10px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);transition:transform .2s ease,border-color .2s ease}
+.cl-guia-card:hover {transform:translateY(-3px);border-color:#3498db;box-shadow:0 0 18px rgba(52,152,219,.15)}
+.cl-guia-card h4 {margin:0 0 10px;font-size:15px;color:#e8ecf1}
+.cl-guia-card ul {margin:0;padding-left:18px;font-size:13px;color:#b0b8c4;line-height:1.5}
+.cl-guia-chips {display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}
+.cl-guia-chip {font-size:11px;font-weight:500;color:#b0b8c4;padding:5px 10px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
+.cl-guia-repo {margin:18px 0}
+.cl-guia-repo summary {font-size:13px;font-weight:600;color:#3498db;cursor:pointer}
+.cl-guia-repo pre {font-size:11px;color:#b0b8c4;background:rgba(0,0,0,.25);padding:12px;border-radius:10px;overflow:auto;border:1px solid rgba(255,255,255,.06)}
+.cl-guia-links {display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
+.cl-guia-links a {display:inline-flex;align-items:center;gap:6px;padding:10px 16px;border-radius:12px;font-size:13px;font-weight:600;color:#fff;background:linear-gradient(90deg,#3498db,#2980b9);border:1px solid transparent;transition:transform .2s ease,box-shadow .2s ease}
+.cl-guia-links a:hover {transform:translateY(-2px);box-shadow:0 0 16px rgba(52,152,219,.25);text-decoration:none}
+.cl-guia-links a.secondary {background:transparent;border-color:rgba(255,255,255,.15);color:#e8ecf1}
+.cl-guia-links a.secondary:hover {border-color:#3498db}
+.cl-guia-cat-chip {display:inline-block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#3498db;background:rgba(52,152,219,.10);border:1px solid rgba(52,152,219,.25);padding:5px 10px;border-radius:999px;margin:20px 0 10px}
+.cl-guia details.faq {background:linear-gradient(145deg, rgba(255,255,255,.03), rgba(255,255,255,.01));border:1px solid rgba(255,255,255,.06);border-left:3px solid transparent;border-radius:0 12px 12px 0;margin-bottom:10px;overflow:hidden;transition:border-color .18s ease}
+.cl-guia details.faq[open] {border-left-color:#3498db}
+.cl-guia details.faq summary {list-style:none;cursor:pointer;padding:14px 16px;font-size:14px;font-weight:500;color:#e8ecf1;display:flex;align-items:center;justify-content:space-between}
+.cl-guia details.faq summary::-webkit-details-marker {display:none}
+.cl-guia details.faq summary::after {content:'▸';color:#8b95a5;transition:transform .18s ease}
+.cl-guia details.faq[open]>summary::after {transform:rotate(90deg);color:#3498db}
+.cl-guia .faq-simple {padding:0 16px 12px;font-size:13px;color:#b0b8c4;line-height:1.5}
+.cl-guia details.tec {margin:0 16px 14px;background:rgba(0,0,0,.25);border-radius:10px;border:1px solid rgba(255,255,255,.06)}
+.cl-guia details.tec summary {padding:10px 14px;font-size:12px;color:#3498db;font-weight:600;cursor:pointer;list-style:none}
+.cl-guia details.tec summary::-webkit-details-marker {display:none}
+.cl-guia details.tec summary::after {content:'＋';margin-left:6px;transition:transform .18s ease}
+.cl-guia details.tec[open]>summary::after {content:'−'}
+.cl-guia .tec-body {padding:0 14px 12px;font-size:12px;color:#9aa3b2;line-height:1.5}
+.cl-guia .tec-body code {font-family:SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px;color:#e8ecf1;font-size:11px}
+.cl-guia [role="tablist"], .cl-guia [data-baseweb="tab-list"] {border-bottom:none;margin-bottom:16px}
+.cl-guia [role="tablist"] button, .cl-guia [data-baseweb="tab-list"] button {background:transparent;border:1px solid rgba(255,255,255,.08);border-radius:999px;color:#8b95a5;padding:8px 16px;margin:0 6px 8px 0;font-size:13px;font-weight:500;transition:all .2s ease}
+.cl-guia [role="tablist"] button[aria-selected="true"], .cl-guia [data-baseweb="tab-list"] button[aria-selected="true"] {background:linear-gradient(90deg,#3498db,#2980b9);color:#fff;border-color:transparent;box-shadow:0 0 12px rgba(52,152,219,.25)}
+@media (prefers-reduced-motion: reduce) { .cl-guia-pulse, .cl-guia-stat, .cl-guia-node, .cl-guia-card, .cl-guia details.faq summary::after, .cl-guia details.tec summary::after {animation:none;transition:none} }
+@media (max-width: 640px) {
+  .cl-guia-hero {flex-direction:column;align-items:flex-start;text-align:left}
+  .cl-guia-hero img {width:52px;height:65px}
+  .cl-guia-hero-title {font-size:26px}
+  .cl-guia-pipeline {flex-direction:column;align-items:center}
+  .cl-guia-node {max-width:100%;width:100%}
+  .cl-guia-conn {width:2px;height:24px;background:linear-gradient(180deg,#3498db,#1abc9c)}
+  .cl-guia-stats {grid-template-columns:repeat(2,1fr)}
+}
+</style>
+""")
+
+
+def _guia_estructura_html() -> str:
+    stats = "".join(
+        f"""
+        <div class="cl-guia-stat">
+          <div class="cl-guia-stat-val">{s['valor']}</div>
+          <div class="cl-guia-stat-lbl">{s['etiqueta']}</div>
+        </div>
+        """
+        for s in _GUIA_STATS
+    )
+    pipeline_parts = []
+    for i, n in enumerate(_GUIA_PIPELINE):
+        ok = n["estado"] == "Operando hoy"
+        badge_cls = "cl-guia-badge-ok" if ok else "cl-guia-badge-next"
+        pulse = '<span class="cl-guia-pulse"></span>' if ok else ""
+        pipeline_parts.append(_guia_block(f"""
+        <div class="cl-guia-node">
+          <div class="cl-guia-node-num">{n['num']}</div>
+          <div class="cl-guia-node-icon">{n['icono']}</div>
+          <div class="cl-guia-node-title">{n['titulo']}</div>
+          <div class="cl-guia-node-desc">{n['desc']}</div>
+          <div class="cl-guia-badge {badge_cls}">{pulse}{n['estado']}</div>
+        </div>
+        """))
+        if i < len(_GUIA_PIPELINE) - 1:
+            pipeline_parts.append('<div class="cl-guia-conn"></div>')
+    pipeline = "".join(pipeline_parts)
+    vistas = "".join(
+        _guia_block(f"""
+        <div class="cl-guia-card">
+          <h4>{v['titulo']}</h4>
+          <ul>
+            {''.join(f'<li>{it}</li>' for it in v['items'])}
+          </ul>
+        </div>
+        """)
+        for v in _GUIA_VISTAS
+    )
+    chips = "".join(f'<span class="cl-guia-chip">{c}</span>' for c in _GUIA_TECH_CHIPS)
+    return _guia_block(f"""
+    <div class="cl-guia">
+      <div class="cl-guia-hero">
+        <img src="data:image/svg+xml;base64,{_LOGO_B64}" alt="CentineLA logo">
+        <div>
+          <div class="cl-guia-hero-title">Centine<span>LA</span></div>
+          <div class="cl-guia-hero-tag">Alerta temprana comunitaria para la Quebrada La Honda · datos abiertos · bajo costo</div>
+        </div>
+      </div>
+      <div class="cl-guia-stats">
+        {stats}
+      </div>
+      <div class="cl-guia-section-title">Cómo fluye la información</div>
+      <div class="cl-guia-pipeline">
+        {pipeline}
+      </div>
+      <div class="cl-guia-section-title">Dos formas de ver el sistema</div>
+      <div class="cl-guia-cards">
+        {vistas}
+      </div>
+      <div class="cl-guia-section-title">Tecnologías</div>
+      <div class="cl-guia-chips">
+        {chips}
+      </div>
+      <details class="cl-guia-repo">
+        <summary>Estructura del repositorio</summary>
+        <pre>{_GUIA_REPO}</pre>
+      </details>
+      <div class="cl-guia-links">
+        <a href="https://github.com/B41r0n/CentineLA" target="_blank" rel="noopener">Ver código en GitHub</a>
+        <a class="secondary" href="{_GUIA_PROD_URL}" target="_blank" rel="noopener">Abrir el tablero</a>
+      </div>
+    </div>
+    """)
+
+
+def _guia_faq_html() -> str:
+    sections = []
+    current_cat = None
+    for item in _GUIA_FAQ:
+        if item["cat"] != current_cat:
+            current_cat = item["cat"]
+            sections.append(f'<div class="cl-guia-cat-chip">{current_cat}</div>')
+        sections.append(_guia_block(f"""
+        <details class="faq">
+          <summary><span>{item['q']}</span></summary>
+          <div class="faq-simple">{item['simple']}</div>
+          <details class="tec">
+            <summary>Ver detalle técnico</summary>
+            <div class="tec-body">{item['tecnico']}</div>
+          </details>
+        </details>
+        """))
+    return _guia_block("\n".join(sections))
+
+
+@st.dialog("CentineLA · Guía del proyecto", width="large")
+def dialog_guia() -> None:
+    st.markdown(_GUIA_CSS, unsafe_allow_html=True)
+    tabs = st.tabs(["🧭 Estructura del proyecto", "💬 Preguntas frecuentes"])
+    with tabs[0]:
+        st.markdown(_guia_estructura_html(), unsafe_allow_html=True)
+    with tabs[1]:
+        st.markdown(_guia_faq_html(), unsafe_allow_html=True)
+
+
 # ── estilos globales ───────────────────────────────────────────────────────────
 
 CSS_GLOBAL = """
@@ -1034,6 +1420,9 @@ div[data-testid="stHorizontalBlock"]:has(.st-key-card-hero) [data-testid="stVert
 [data-testid="stMetric"]{background:var(--cl-card);border:1px solid var(--cl-border);border-radius:12px;padding:12px 16px}
 [data-testid="stDataFrame"]{border-radius:12px;overflow:hidden}
 [data-testid="stExpander"] details{border-radius:12px!important;border:1px solid var(--cl-border)!important;background:var(--cl-card)}
+.st-key-btn-guia{margin-bottom:8px}
+.st-key-btn-guia button{width:100%;background:rgba(52,152,219,.08);border:1px solid #3498db;color:#e8ecf1;border-radius:12px;padding:10px 16px;font-weight:500;transition:all .2s ease}
+.st-key-btn-guia button:hover{background:rgba(52,152,219,.18);box-shadow:0 0 12px rgba(52,152,219,.25)}
 </style>
 """
 
@@ -1204,8 +1593,12 @@ def main() -> None:
     st.sidebar.caption(f"Estado: {estado_actual}")
     st.sidebar.caption("CentineLA — Bairon Nicolas Calle Rivera · ITM · Territorio INN 2026")
 
-    # Botón "Actualizar ahora" en sidebar
+    # Botón guía del proyecto en sidebar
     st.sidebar.divider()
+    if st.sidebar.button("📖 Estructura y preguntas frecuentes", key="btn-guia", use_container_width=True):
+        dialog_guia()
+
+    # Botón "Actualizar ahora" en sidebar
     if st.sidebar.button("🔄 Actualizar ahora", use_container_width=True):
         with st.spinner("Consultando IDEAM y recalculando..."):
             resultado = actualizar_ahora()
