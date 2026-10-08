@@ -1244,11 +1244,11 @@ _GUIA_CSS = _guia_block("""
 .cl-guia-cat-chip {display:inline-block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#3498db;background:rgba(52,152,219,.10);border:1px solid rgba(52,152,219,.25);padding:5px 10px;border-radius:999px;margin:20px 0 10px}
 .cl-guia details.faq {background:linear-gradient(145deg, rgba(255,255,255,.03), rgba(255,255,255,.01));border:1px solid rgba(255,255,255,.06);border-left:3px solid transparent;border-radius:0 12px 12px 0;margin-bottom:10px;overflow:hidden;transition:border-color .18s ease}
 .cl-guia details.faq[open] {border-left-color:#3498db}
-.cl-guia details.faq summary {list-style:none;cursor:pointer;padding:14px 16px;font-size:14px;font-weight:500;color:#e8ecf1;display:flex;align-items:center;justify-content:space-between}
+.cl-guia details.faq summary {list-style:none;cursor:pointer;padding:14px 16px 10px;font-size:14px;font-weight:600;color:#3498db;display:flex;align-items:center;justify-content:space-between}
 .cl-guia details.faq summary::-webkit-details-marker {display:none}
 .cl-guia details.faq summary::after {content:'▸';color:#8b95a5;transition:transform .18s ease}
 .cl-guia details.faq[open]>summary::after {transform:rotate(90deg);color:#3498db}
-.cl-guia .faq-simple {padding:0 16px 12px;font-size:13px;color:#b0b8c4;line-height:1.5}
+.cl-guia .faq-simple {padding:10px 16px 12px;margin:6px 0 0;font-size:13px;color:#b0b8c4;line-height:1.6;border-top:1px solid rgba(255,255,255,.06)}
 .cl-guia details.tec {margin:0 16px 14px;background:rgba(0,0,0,.25);border-radius:10px;border:1px solid rgba(255,255,255,.06)}
 .cl-guia details.tec summary {padding:10px 14px;font-size:12px;color:#3498db;font-weight:600;cursor:pointer;list-style:none}
 .cl-guia details.tec summary::-webkit-details-marker {display:none}
@@ -1365,7 +1365,11 @@ def _guia_faq_html() -> str:
           </details>
         </details>
         """))
-    return _guia_block("\n".join(sections))
+    return _guia_block(f"""
+    <div class="cl-guia">
+      {"\n".join(sections)}
+    </div>
+    """)
 
 
 @st.dialog("CentineLA · Guía del proyecto", width="large")
