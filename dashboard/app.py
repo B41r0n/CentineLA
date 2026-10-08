@@ -1607,9 +1607,15 @@ def main() -> None:
         with st.spinner("Consultando IDEAM y recalculando..."):
             resultado = actualizar_ahora()
         if resultado["ok"]:
-            st.sidebar.success(
-                f"Listo — última lectura: {resultado['ultima_lectura']}"
-            )
+            total_nuevas = sum(resultado["filas_nuevas_por_estacion"].values())
+            if total_nuevas == 0:
+                st.sidebar.info(
+                    f"Sin datos nuevos en IDEAM — última disponible: {resultado['ultima_lectura']}"
+                )
+            else:
+                st.sidebar.success(
+                    f"{total_nuevas} lecturas nuevas — última: {resultado['ultima_lectura']}"
+                )
             st.cache_data.clear()
             st.rerun()
         else:
