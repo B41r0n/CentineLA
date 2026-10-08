@@ -24,7 +24,7 @@ Fase 2 CERRADA. Scripts implementados y ejecutados:
 - `simulate/07_entrenar_modelo_6h.py` — 3 enfoques de RF regresor (target absoluto, delta, weighted) + comparación contra baseline de persistencia; joblib dump de los 3 modelos. El clasificador no está en este script; está en `simulate/08_clasificador_6h.py`.
 - `simulate/08_clasificador_6h.py` — clasificador binario RF con barrido de umbrales 0.5→0.1 sobre probabilidades. El dashboard aplica sobre esa probabilidad una escala ternaria: NORMAL `<0.30`, PRECAUCIÓN `[0.30, 0.70)`, ALERTA `≥0.70`.
 - `simulate/09_gateway_simulado.py` — simula gateway RPi4 fila-a-fila, valida features streaming vs batch (epsilon 1e-6), genera `log_gateway_simulado.csv`.
-- `data/processed/filas_baja_calidad.csv` — filas con n_estaciones<2, conservadas para auditoría QA.
+- `data/processed/filas_baja_calidad.csv` — filas con n_estaciones<2, generadas por el ETL para auditoría QA (no versionadas).
 
 **Estaciones IDEAM elegidas para Fase 1 cerrada:**
 - `0027015290` — PAJARITO - AUT — Climatológica Principal
@@ -141,7 +141,7 @@ Estación calidad de aire v13, Wokwi: ESP32 + DHT22 (temp/humedad) + MQ-135 (CO2
 ```
 CentineLA/
   .env.example                   # nombres de variables de entorno, sin valores
-  .gitignore                     # excluye .env, venv, datos crudos/procesados y modelos
+  .gitignore                     # excluye .env, venv, datos crudos, datasets 12h/24h, filas_baja_calidad y modelos huérfanos
   README.md                      # documentación principal del proyecto
   requirements.txt               # pandas, sodapy, scikit-learn, joblib, streamlit, numpy, matplotlib, plotly, folium, streamlit-folium, requests, python-dotenv
   scripts/
@@ -149,7 +149,7 @@ CentineLA/
     02_pull_historico.py         # pull histórico por estación (paginación + bisección recursiva + dedup); lee credenciales de .env
   data/
     raw/                         # NO trackeado: historico_*.csv, estaciones_candidatas.csv
-    processed/                   # NO trackeado excepto .png: proxy, datasets, log_gateway
+    processed/                   # parcialmente trackeado: proxy_q_la_honda.csv, dataset_6h.csv, log_gateway_simulado.csv + .png
   simulate/
     cuenca_la_honda_params.py    # área/longitud/tramos/CN (dato-duro vs supuesto marcado)
     04_scs_cn_proxy.py           # proxy SCS-CN horario
@@ -158,13 +158,10 @@ CentineLA/
     07_entrenar_modelo_6h.py     # 3 enfoques RF regresor; joblib dump
     08_clasificador_6h.py        # clasificador binario + barrido de umbrales (probabilidad cruda)
     09_gateway_simulado.py       # gateway streaming con validación batch vs stream
-    models/                      # trackeado: clf_6h.joblib, clf_6h_baseline_20260913.joblib; rf_6h*.joblib ignorado
+    models/                      # trackeado: clf_6h.joblib; rf_6h*.joblib y clf_6h_baseline_*.joblib ignorados
   dashboard/
     app.py                       # Streamlit — Fase 3 CERRADA
     _check_fixes.py              # verificaciones del dashboard
-    requirements.txt             # requirements pinnados del dashboard
-  centinela-demo/
-    CentineLA_Sesion_Fase3_Export.md  # resumen del cierre de Fase 3
 ```
 
 ## Seguridad y gestión de secretos
@@ -203,7 +200,7 @@ CentineLA/
 - **P_basin:** promedio `skipna=True` de las 3 estaciones por hora. Resample 1h con `sum()` (datos son incrementos de pluviómetro de balde cada ~10 min, no acumulados diarios).
 - **SCS-CN:** CN=81.1 desde `cuenca_la_honda_params.py`. P acumulado como rolling 24h. Aplicación de fórmula de evento único a serie continua es aproximación — documentada como limitación; calibrar con nivel real cuando llegue.
 - **Target de clasificación:** `label_6h = target_6h > p90(train)`. p90 calculado solo sobre train — nunca sobre test (fuga si no). Con distribución actual p90=0.0.
-- **Umbral binario histórico del gateway:** 0.20. Recall=0.74, FP/TP≈1.5:1. El clasificador es una fuente dentro de la fusión multi-sensor (regla ≥2 fuentes críticas = rojo), no árbitro único — se acepta más FP a cambio de no perderse eventos.
+- **Umbral binario histórico del gateway (no vigente):** 0.20. Recall=0.74, FP/TP≈1.5:1. El dashboard actual usa la escala ternaria sobre la misma probabilidad; ver métricas vigentes en la tabla de umbrales ternarios.
 - **Escala ternaria del dashboard (2026-10):** NORMAL `<0.30` / PRECAUCIÓN `[0.30, 0.70)` / ALERTA `≥0.70` sobre la misma `predict_proba`. Define el estado mostrado al operador y comunitario; no sustituye la regla multi-fuente.
 - **Horizonte 6h priorizado:** tiempo de concentración corto + deadline oct-2026. Datasets 12h/24h generados pero no entrenados con el mismo rigor.
 

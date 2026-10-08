@@ -4,6 +4,17 @@ venv/
 venv_test/
 .venv/
 .env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
 data/raw/*.csv
 data/processed/centinela.db
+data/processed/dataset_12h.csv
+data/processed/dataset_24h.csv
+data/processed/filas_baja_calidad.csv
 simulate/models/rf_6h*.joblib
+simulate/models/clf_6h_baseline_*.joblib

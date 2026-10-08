@@ -2,8 +2,6 @@
 
 Sistema de alerta temprana de crecientes súbitas para la **Quebrada La Honda**, Comuna 4 Aranjuez, Medellín.
 
-> Repositorio real ubicado en: `C:\Users\Nico\Desktop\CentineLA`
-
 ## Autor
 
 Bairon Nicolas Calle Rivera — estudiante de Gestión de Redes de Telecomunicaciones, ITM (Instituto Tecnológico Metropolitano), Medellín.
@@ -77,12 +75,10 @@ CUENCA ALTA                         TRAMO MEDIO                         TRAMO BA
 
 ```text
 CentineLA/
-├── .gitignore                              # Ignora venv, __pycache__, CSVs crudos/procesados y modelos .joblib
-├── .vscode/settings.json                   # Configuración local de VS Code
+├── .gitignore                              # Ignora venv, __pycache__, datos/modelos generados y config local de IDEs
 ├── requirements.txt                        # Dependencias raíz (ahora completas)
+├── LICENSE                                 # Licencia del software
 ├── CENTINELA_CONTEXTO_TECNICO.md           # Contexto interno para asistentes de código
-├── STATUS_REPORT.md                        # Auditoría de solo lectura del 2026-07-21
-├── RESUMEN_SESION_CENTINELA_2026-07-11.md  # Resumen de la sesión que cerró proxy, validación y ETL
 │
 ├── scripts/
 │   ├── 01_buscar_estaciones.py             # Filtra catálogo IDEAM por Valle de Aburrá y rankea por distancia a La Honda
@@ -98,10 +94,7 @@ CentineLA/
 │   └── processed/                          # Trackeado para deploy
 │       ├── proxy_q_la_honda.csv            # Proxy SCS-CN horario
 │       ├── proxy_q_la_honda_eventos.png    # Serie completa + marcas de eventos (vacío hoy)
-│       ├── filas_baja_calidad.csv          # Filas con n_estaciones_disponibles < 2
 │       ├── dataset_6h.csv                  # Dataset de entrenamiento (horizonte 6 h)
-│       ├── dataset_12h.csv                 # Dataset de entrenamiento (horizonte 12 h)
-│       ├── dataset_24h.csv                 # Dataset de entrenamiento (horizonte 24 h)
 │       └── log_gateway_simulado.csv        # Resultado de la simulación del gateway
 │
 ├── simulate/
@@ -113,8 +106,7 @@ CentineLA/
 │   ├── 08_clasificador_6h.py               # RandomForestClassifier: NORMAL / PRECAUCIÓN / ALERTA (modelo en producción)
 │   ├── 09_gateway_simulado.py              # Gateway simulado en modo streaming
 │   └── models/                             # Trackeado para deploy
-│       ├── clf_6h.joblib
-│       └── clf_6h_baseline_20260913.joblib # Respaldo del modelo previo
+│       └── clf_6h.joblib
 │
 └── dashboard/
     ├── app.py                              # Dashboard Streamlit
@@ -406,16 +398,15 @@ features["mes"] = features.index.month
 7. **Split cronológico:**
    * Si ya existe un `dataset_{h}h.csv` previo con columna `split`, **preserva el corte** para no cambiar la evaluación entre corridas. Si existe un dataset previo, el ETL conserva su corte; en la corrida del 01-oct-2026 el corte se mantuvo en 2025-07-06 15:00.
    * Si no, usa proporción **82/18** (`int(n_total * 0.82)`).
-8. **Guarda** `dataset_6h.csv`, `dataset_12h.csv`, `dataset_24h.csv`.
+8. **Guarda** `dataset_6h.csv` (y también genera `dataset_12h.csv`, `dataset_24h.csv` y `filas_baja_calidad.csv` si se desean).
 
 **Entrada:** `data/processed/proxy_q_la_honda.csv`.
 
-**Salidas:**
+**Salidas trackeadas:**
 
-* `data/processed/filas_baja_calidad.csv`
 * `data/processed/dataset_6h.csv`
-* `data/processed/dataset_12h.csv`
-* `data/processed/dataset_24h.csv`
+
+> `dataset_12h`, `dataset_24h` y `filas_baja_calidad.csv` se generan al correr el ETL; no se versionan en el repo.
 
 **Constantes y variables clave:**
 
@@ -845,14 +836,14 @@ Script de verificación que:
 
 ### 8.1 Entorno
 
-Se recomienda usar el `venv` ya existente en el repo:
+Se recomienda crear y activar un entorno virtual en la raíz del repo:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
-& C:\Users\Nico\Desktop\CentineLA\venv\Scripts\Activate.ps1
+& .venv\Scripts\Activate.ps1
 ```
 
-O crear uno nuevo e instalar dependencias. El único archivo de requerimientos es `requirements.txt` en la raíz; incluye las versiones exactas del entorno de entrenamiento y del dashboard.
+Luego instalar dependencias. El único archivo de requerimientos es `requirements.txt` en la raíz; incluye las versiones exactas del entorno de entrenamiento y del dashboard.
 
 ```bash
 pip install -r requirements.txt
@@ -946,130 +937,9 @@ Solo se incluyen limitaciones confirmadas por el código o los datos:
 5. **Desbalance extremo.** Con `p90=0.0`, la clase positiva equivale a `target_6h > 0`, que representa ~8.9 % en entrenamiento y ~4.7 % en test.
 6. **No hay split aleatorio; es cronológico.** El test está fijado desde `2025-07-06 16:00` en adelante. Cualquier cambio estructural en los datos recientes afecta las métricas.
 7. **Recall aislado del clasificador no supera ~0.82.** A umbral 0.10 se alcanza 0.817; a 0.20 es 0.743 (corrida del 27-jul-2026). El diseño asume que el clasificador será una de varias fuentes en una regla de fusión multi-sensor. El estado PRECAUCIÓN (0.30–0.70) amplía la vigilancia sin disparar la alerta máxima.
-8. **Modelos y datos grandes están parcialmente versionados.** Desde la limpieza de 2026-10, los datasets procesados y `clf_6h.joblib`/`clf_6h_baseline_20260913.joblib` están en el repo; los `rf_6h*.joblib` y `data/raw/*.csv` se regeneran o comparten por otro medio.
+8. **Modelos y datos grandes están parcialmente versionados.** Tras la limpieza del repositorio se trackean solo `proxy_q_la_honda.csv`, `dataset_6h.csv`, `log_gateway_simulado.csv` y `simulate/models/clf_6h.joblib`; los datasets 12h/24h, `filas_baja_calidad.csv`, el modelo baseline y los archivos de `data/raw/` se regeneran o comparten por otro canal.
 9. **Capa física (LoRa, sensores, cámaras) no implementada.** Solo existe el simulador y la arquitectura documentada.
 10. **Prototipo IoT base documentado solo como referencia.** Los issues del sketch Wokwi (credenciales WiFi expuestas, `WiFiMulti`, umbral de temperatura) no se han resuelto en este repo.
-
----
-
-## 10. Estado del repositorio (git)
-
-### Sí es un repositorio Git
-
-A diferencia de lo que afirma `STATUS_REPORT.md` (auditoría 2026-07-21), el directorio **sí es un repositorio Git** en la fecha actual. El historial fue **reescrito** (`e8d53c4` “CentineLA: historial limpio”) para eliminar credenciales Socrata que estuvieron expuestas en commits antiguos, por lo que los commits anteriores a la reescritura **ya no existen**. Historial actual completo:
-
-```text
-$ git log --oneline
-4b747e3 chore: limpia modelos huérfanos rf_6h y directorio basura {data/
-a28613e fix: corrige etiqueta "Tramo Medio" (Jardin Botanico -> La Honda) en dashboard y README, coincide con TRAMOS real
-5a4324b docs: update outdated markdown files to reflect current repo state
-629e887 docs: document .env setup and credential rotation
-e8d53c4 CentineLA: historial limpio
-```
-
-### Archivos trackeados
-
-```text
-.env.example
-.gitignore
-.vscode/settings.json
-CENTINELA_CONTEXTO_TECNICO.md
-README.md
-RESUMEN_SESION_CENTINELA_2026-07-11.md
-STATUS_REPORT.md
-dashboard/_check_fixes.py
-dashboard/app.py
-requirements.txt
-data/processed/dataset_12h.csv
-data/processed/dataset_24h.csv
-data/processed/dataset_6h.csv
-data/processed/filas_baja_calidad.csv
-data/processed/log_gateway_simulado.csv
-data/processed/proxy_q_la_honda.csv
-data/processed/proxy_q_la_honda_eventos.png
-scripts/01_buscar_estaciones.py
-scripts/02_pull_historico.py
-simulate/04_scs_cn_proxy.py
-simulate/05_validar_proxy_eventos.py
-simulate/06_etl_features.py
-simulate/07_entrenar_modelo_6h.py
-simulate/08_clasificador_6h.py
-simulate/09_gateway_simulado.py
-simulate/cuenca_la_honda_params.py
-simulate/models/clf_6h.joblib
-simulate/models/clf_6h_baseline_20260913.joblib
-simulate/models/rf_6h.joblib
-simulate/models/rf_6h_delta.joblib
-simulate/models/rf_6h_weighted.joblib
-```
-
-### Archivos NO trackeados (`.gitignore`)
-
-```gitignore
-__pycache__/
-*.pyc
-venv/
-venv_test/
-.venv/
-data/raw/*.csv
-```
-
-Por tanto, los siguientes artefactos **no están en Git** y deben regenerarse o transferirse por otro canal:
-
-* `data/raw/historico_*.csv`
-* `data/raw/estaciones_candidatas.csv`
-* `data/processed/*.csv`
-* `simulate/models/*.joblib`
-
-### Cómo regenerar lo que no está trackeado
-
-1. Ejecutar `scripts/01_buscar_estaciones.py` y `scripts/02_pull_historico.py` para regenerar `data/raw/`.
-2. Ejecutar los scripts `04` al `09` de `simulate/` para regenerar `data/processed/` y `simulate/models/`.
-3. Ejecutar `streamlit run dashboard/app.py` para levantar el dashboard.
-
----
-
-## 11. Discrepancias encontradas
-
-Se listan diferencias entre el código real y documentación o comentarios previos:
-
-1. **`STATUS_REPORT.md` dice que no es repositorio Git, pero sí lo es.**
-   * `STATUS_REPORT.md` línea 5: “el directorio no es un repositorio Git (`git status` devuelve `fatal: not a git repository`)”.
-   * Realidad actual: `git log` muestra el historial reescrito a partir de `e8d53c4` (“CentineLA: historial limpio”) y `git ls-files` devuelve los archivos trackeados actuales.
-
-2. **`STATUS_REPORT.md` reporta fechas erróneas de hueco de Metromedellín en `06_etl_features.py`, pero el código actual está corregido.**
-   * `STATUS_REPORT.md` línea 19: afirma que `METROMEDELLIN_GAP_INICIO = 2019-07-01 00:00:00` y `METROMEDELLIN_GAP_FIN = 2020-12-31 23:59:59`.
-   * Código actual:
-
-```python
-METROMEDELLIN_GAP_INICIO = pd.Timestamp("2019-02-18 16:00:00")
-METROMEDELLIN_GAP_FIN    = pd.Timestamp("2019-07-26 11:00:00")
-```
-
-   * La corrección quedó absorbida en la reescritura de historial (`e8d53c4`); los commits que la introdujeron (`dddfc2b` y anteriores) ya no existen en el historial actual.
-
-3. **`STATUS_REPORT.md` dice que `requirements.txt` raíz es incompleto, pero el archivo actual está completo.**
-   * `STATUS_REPORT.md` líneas 147-157: reporta que faltaban `numpy`, `matplotlib`, `plotly`, `folium`, `streamlit-folium` y `requests`.
-   * `requirements.txt` actual incluye todas esas dependencias.
-   * El `requirements.txt` raíz ya está completo en el historial actual; la corrección de dependencias también quedó absorbida en la reescritura `e8d53c4`.
-
-4. **`CENTINELA_CONTEXTO_TECNICO.md` ubica la estructura del repo bajo `centinela-demo/`, pero el repo real usa `CentineLA/` como raíz.**
-   * La sección “Estructura del repo (`centinela-demo/`)” muestra carpetas `centinela-demo/scripts/`, `centinela-demo/data/`, etc.
-   * Realmente los scripts, datos y modelos están directamente bajo `CentineLA/`, no anidados en `centinela-demo/`.
-   * Además, la carpeta `centinela-demo/` y su contenido fueron eliminados del repositorio en esta sesión.
-
-5. **`CENTINELA_CONTEXTO_TECNICO.md` dice que `07_entrenar_modelo_6h.py` contiene el clasificador RF, pero el clasificador está en `08_clasificador_6h.py`.**
-   * Línea 25: “`simulate/07_entrenar_modelo_6h.py` — 3 enfoques RF regresor + RF clasificador; joblib dump de los 3 modelos.”
-   * El script `07` solo entrena regresores y genera `rf_6h*.joblib`. El clasificador se entrena y guarda en `08_clasificador_6h.py` como `clf_6h.joblib`.
-
-6. **`08_clasificador_6h.py` barre umbrales binarios (0.10–0.50); el dashboard usa dos umbrales ternarios.**
-   * El recomendador interno prioriza `recall >= 0.85`; como ningún umbral del barrido lo alcanza, no recomienda un valor único.
-   * `09_gateway_simulado.py` sigue usando `UMBRAL_ALERTA = 0.20` (binario); `dashboard/app.py` expone tres estados con `UMBRAL_PRECAUCION = 0.30` y `UMBRAL_ALERTA = 0.70` sobre la misma probabilidad. Las métricas de validación (recall/precisión) corresponden al modelo binario y no se han recalculado aún para los estados ternarios.
-
-7. **Preset “Lluvia fuerte sostenida” del dashboard no produce ~77 %.**
-   * `STATUS_REPORT.md` línea 84-88 documenta que alguien esperaba ~77 %.
-   * `dashboard/_check_fixes.py` y la ejecución real arrojan ~0.965 (96.5 %) con `hora_dia=14, mes=7`.
-   * No hay documentación previa en el repo que fije 77 % como objetivo; parece una expectativa externa incorrecta.
 
 ---
 
@@ -1091,12 +961,12 @@ METROMEDELLIN_GAP_FIN    = pd.Timestamp("2019-07-26 11:00:00")
 | Sistema de alertas | NORMAL / PRECAUCIÓN / ALERTA | `dashboard/app.py` |
 | Umbral PRECAUCIÓN | 0.30 | `dashboard/app.py` (`UMBRAL_PRECAUCION`) |
 | Umbral ALERTA | 0.70 | `dashboard/app.py` (`UMBRAL_ALERTA`) |
-| Umbral binario gateway | 0.20 | `09_gateway_simulado.py` |
-| Recall binario (umbral 0.20) | 0.752998 | `08_clasificador_6h.py` (barrido) |
-| Precisión binaria (umbral 0.20) | 0.415344 | `08_clasificador_6h.py` (barrido) |
-| Recall PRECAUCIÓN (umbral 0.30) | 0.714628 | `simulate/10_metricas_ternario.py` |
-| Precisión PRECAUCIÓN (umbral 0.30) | 0.497496 | `simulate/10_metricas_ternario.py` |
-| Recall ALERTA (umbral 0.70) | 0.549161 | `simulate/10_metricas_ternario.py` |
-| Precisión ALERTA (umbral 0.70) | 0.860902 | `simulate/10_metricas_ternario.py` |
+| Umbral binario gateway (histórico) | 0.20 | `09_gateway_simulado.py` |
+| Recall binario (umbral 0.20) | 0.752998 | `08_clasificador_6h.py` (barrido; referencia histórica binaria) |
+| Precisión binaria (umbral 0.20) | 0.415344 | `08_clasificador_6h.py` (barrido; referencia histórica binaria) |
+| Recall PRECAUCIÓN (umbral ≥0.30) | 0.714628 (~71.5 %) | `simulate/10_metricas_ternario.py` |
+| Precisión PRECAUCIÓN (umbral ≥0.30) | 0.497496 (~49.7 %) | `simulate/10_metricas_ternario.py` |
+| Recall ALERTA (umbral ≥0.70) | 0.549161 (~54.9 %) | `simulate/10_metricas_ternario.py` |
+| Precisión ALERTA (umbral ≥0.70) | 0.860902 (~86.1 %) | `simulate/10_metricas_ternario.py` |
 | Gateway validación | 500 timestamps, ε=1e-6 | `09_gateway_simulado.py` |
 | Alertas/NORMAL gateway | 5 028 / 40 167 | `09_gateway_simulado.py` |
