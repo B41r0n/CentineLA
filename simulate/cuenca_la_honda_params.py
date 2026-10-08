@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Bairon Nicolás Calle Rivera
 """
 Parámetros morfométricos e hidrológicos de la microcuenca Quebrada La Honda,
 para el proxy lluvia-escorrentía (método SCS-CN) de Fase 2.

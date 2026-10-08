@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Bairon Nicolás Calle Rivera
 """
 Fase 1, paso 1 — Identificar estaciones IDEAM cercanas a Q. La Honda / Aranjuez.
 

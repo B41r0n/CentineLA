@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Bairon Nicolás Calle Rivera
 from pathlib import Path
 import sys
 BASE_DIR = Path(__file__).resolve().parent.parent

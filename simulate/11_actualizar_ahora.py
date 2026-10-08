@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Bairon Nicolás Calle Rivera
 """
 Módulo 11: Actualización en vivo desde IDEAM (Socrata) con BD SQLite local.
 

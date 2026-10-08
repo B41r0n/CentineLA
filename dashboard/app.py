@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Bairon Nicolás Calle Rivera
 """
 CentineLA — Dashboard Streamlit
 Vista Pública + Vista Operador (JAC)
@@ -1004,7 +1006,7 @@ _GUIA_REPO = """CentineLA/
 ├─ scripts/          01 estaciones · 02 descarga histórica del IDEAM
 ├─ data/processed/   datasets y proxy horario
 ├─ .streamlit/       tema oscuro
-└─ README.md · LICENSE (MIT) · requirements.txt"""
+└─ README.md · LICENSE (AGPL-3.0) · requirements.txt"""
 
 _GUIA_FAQ = [
     {
@@ -1029,7 +1031,7 @@ _GUIA_FAQ = [
         "cat": "El proyecto",
         "q": "¿Quién lo desarrolló y es un sistema oficial?",
         "simple": "Es un prototipo académico de Bairon Nicolás Calle Rivera (Gestión de Redes de Telecomunicaciones, ITM) para Territorio INN 2026, Reto #7. No reemplaza los protocolos oficiales de gestión del riesgo: busca apoyarlos.",
-        "tecnico": "Código abierto con licencia MIT, disponible en GitHub.",
+        "tecnico": "Código abierto bajo licencia AGPL-3.0, disponible en GitHub.",
     },
     {
         "cat": "Datos y modelo",

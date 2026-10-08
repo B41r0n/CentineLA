@@ -943,6 +943,18 @@ Solo se incluyen limitaciones confirmadas por el código o los datos:
 
 ---
 
+## 10. Licencia
+
+Copyright (C) 2026 Bairon Nicolás Calle Rivera.
+Este software se distribuye bajo la licencia **GNU AGPL-3.0** (ver [`LICENSE`](LICENSE)).
+Las versiones publicadas hasta el commit `c5fc5a2` se distribuyeron bajo licencia MIT; desde 2026-10-08 el proyecto se licencia bajo AGPL-3.0.
+
+Los datos del IDEAM se rigen por los términos de datos abiertos de [datos.gov.co](https://datos.gov.co) y no están cubiertos por esta licencia.
+
+Para uso bajo otros términos (por ejemplo, comercial): [b41r0nn@gmail.com](mailto:b41r0nn@gmail.com).
+
+---
+
 ## Apéndice: números de referencia rápida
 
 | Concepto | Valor exacto | Fuente en el código |

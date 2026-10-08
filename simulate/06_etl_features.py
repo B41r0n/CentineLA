@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Bairon Nicolás Calle Rivera
 """
 Fase 2, paso 5 - ETL de features para el proxy SCS-CN de La Honda.
 

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Bairon Nicolás Calle Rivera
 """
 Fase 1, paso 2 — Pull histórico de precipitación para la(s) estación(es)
 elegida(s) del CSV que generó 01_buscar_estaciones.py.
