@@ -26,6 +26,11 @@ TARGET_COL = "target_6h"
 SPLIT_COL = "split"
 TIMESTAMP_COL = "timestamp"
 
+# Fecha de congelación de la ventana de evaluación. Las actualizaciones en vivo
+# extienden dataset_6h.csv, pero las métricas reportadas corresponden al test
+# hasta esta fecha para garantizar reproducibilidad.
+FECHA_CORTE_EVALUACION = "2026-09-30 23:00"
+
 UMBRALES = [0.20, 0.30, 0.70]
 
 
@@ -34,6 +39,8 @@ def cargar_datos():
         raise FileNotFoundError(f"No existe el archivo esperado: {DATASET_PATH}")
     df = pd.read_csv(DATASET_PATH, parse_dates=[TIMESTAMP_COL])
     df = df.sort_values(TIMESTAMP_COL).reset_index(drop=True)
+    corte = pd.Timestamp(FECHA_CORTE_EVALUACION)
+    df = df[df[TIMESTAMP_COL] <= corte].reset_index(drop=True)
     return df
 
 
@@ -64,6 +71,7 @@ def preparar_datos(df):
 
 def main():
     print("=== Métricas para umbrales ternarios ===")
+    print(f"Fecha de corte de evaluacion: {FECHA_CORTE_EVALUACION}")
     df = cargar_datos()
     feature_cols, p90, train, test, x_train, y_train, x_test, y_test = preparar_datos(df)
 

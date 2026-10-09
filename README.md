@@ -586,7 +586,9 @@ RandomForestClassifier(
 | 0.30   | 0.714628  | 0.497496  | PRECAUCIÓN (amarillo) o más      |
 | 0.70   | 0.549161  | 0.860902  | ALERTA (rojo)                    |
 
-**Parámetros de la corrida:** Train 35,315 filas (hasta 2025-07-06 15:00), Test 9,051 filas (2025-07-06 16:00 → 2026-09-30), 417 positivos en test (label_6h=1). Reproducible con `python simulate/10_metricas_ternario.py`.
+**Parámetros de la corrida:** Train 35,315 filas (hasta 2025-07-06 15:00), Test 9,055 filas (2025-07-06 16:00 → 2026-09-30), 417 positivos en test (label_6h=1). Reproducible con `python simulate/10_metricas_ternario.py`.
+
+> Las métricas se calculan sobre el test hasta 2026-09-30; el dataset se extiende con las actualizaciones en vivo, pero la evaluación queda fija para que sea reproducible.
 
 **Lectura:** el amarillo captura más crecientes (71%) pero la mitad de sus avisos son falsas alarmas; el rojo detecta menos (55%) pero 86% de sus avisos son reales.
 
@@ -966,7 +968,7 @@ Para uso bajo otros términos (por ejemplo, comercial): [b41r0nn@gmail.com](mail
 | CN por tramo alto/medio/bajo | 70 / 92 / 85 | `simulate/cuenca_la_honda_params.py` |
 | Mínimo estaciones | 2 | `LOW_QUALITY_MIN_ESTACIONES = 2` en `06` y `09` |
 | Horizontes generados | 6, 12, 24 h | `HORIZONTES = (6, 12, 24)` en `06` |
-| Split train/test | 80 / 20 cronológico (corte fijo 2025-07-06 15:00; train 35,315 filas, test 9,051 filas hasta 2026-09-30) | `06_etl_features.py` |
+| Split train/test | 80 / 20 cronológico (corte fijo 2025-07-06 15:00; train 35,315 filas, test 9,055 filas hasta 2026-09-30) | `06_etl_features.py` |
 | Estaciones usadas | 0027015290, 0027015310, 0027015330 | `04_scs_cn_proxy.py` |
 | Sensor canónico | 240 | `04_scs_cn_proxy.py` |
 | Sensor QA Olaya | 257 | `04_scs_cn_proxy.py` |
