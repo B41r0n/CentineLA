@@ -18,9 +18,10 @@ import sys
 import sqlite3
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from sodapy import Socrata
@@ -66,21 +67,36 @@ def _get_client(username: str, password: str, app_token: str | None = None) -> S
 
 def _leer_ultimo_ts(codigo: str) -> str:
     """Lee el último fechaobservacion del CSV histórico de la estación.
-    Si no existe, devuelve FECHA_INICIO_DEFAULT."""
+    Si no existe, usa (último timestamp del proxy - 72 h) para no perder el histórico.
+    Si el proxy tampoco existe, devuelve FECHA_INICIO_DEFAULT."""
     path = DATA_RAW_DIR / f"historico_{codigo}.csv"
-    if not path.exists():
-        return FECHA_INICIO_DEFAULT
-    try:
-        df = pd.read_csv(path, usecols=["fechaobservacion"])
-        if df.empty:
+    if path.exists():
+        try:
+            df = pd.read_csv(path, usecols=["fechaobservacion"])
+            if df.empty:
+                return FECHA_INICIO_DEFAULT
+            df["fechaobservacion"] = pd.to_datetime(df["fechaobservacion"], errors="coerce")
+            df = df.dropna(subset=["fechaobservacion"])
+            if df.empty:
+                return FECHA_INICIO_DEFAULT
+            return df["fechaobservacion"].max().strftime("%Y-%m-%dT%H:%M:%S")
+        except Exception:
             return FECHA_INICIO_DEFAULT
-        df["fechaobservacion"] = pd.to_datetime(df["fechaobservacion"], errors="coerce")
-        df = df.dropna(subset=["fechaobservacion"])
-        if df.empty:
-            return FECHA_INICIO_DEFAULT
-        return df["fechaobservacion"].max().strftime("%Y-%m-%dT%H:%M:%S")
-    except Exception:
-        return FECHA_INICIO_DEFAULT
+
+    # Fallback: punto de partida seguro desde el proxy existente
+    proxy_path = DATA_PROCESSED_DIR / "proxy_q_la_honda.csv"
+    if proxy_path.exists():
+        try:
+            proxy = pd.read_csv(proxy_path, parse_dates=["timestamp"])
+            if not proxy.empty:
+                ts = proxy["timestamp"].max() - timedelta(hours=72)
+                # Redondear a la hora
+                ts = ts.floor("h")
+                return ts.strftime("%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            pass
+
+    return FECHA_INICIO_DEFAULT
 
 
 def _append_sin_duplicados(codigo: str, df_nuevo: pd.DataFrame) -> int:
@@ -116,6 +132,50 @@ def _append_sin_duplicados(codigo: str, df_nuevo: pd.DataFrame) -> int:
     else:
         df_nuevo.to_csv(path, index=False)
         return len(df_nuevo)
+
+
+def _consultar_paginado(client, dataset_id: str, where: str, page_size: int = 5000) -> list:
+    """Consulta Socrata paginando por offset hasta que una página traiga < page_size filas."""
+    resultados = []
+    offset = 0
+    while True:
+        pagina = client.get(
+            dataset_id,
+            where=where,
+            order=":id",
+            limit=page_size,
+            offset=offset,
+        )
+        if not pagina:
+            break
+        resultados.extend(pagina)
+        if len(pagina) < page_size:
+            break
+        offset += page_size
+    return resultados
+
+
+def _fusionar_proxy(proxy_old: pd.DataFrame, proxy_new: pd.DataFrame) -> pd.DataFrame:
+    """Fusiona proxy histórico (old) con el recién generado (new).
+    Si new es una regeneración completa (min muy antiguo), conserva old hasta
+    48 h antes de su máximo y usa new a partir de ahí. Si new es solo el slice
+    nuevo (caso producción con raw vacío), conserva old hasta 24 h después del
+    inicio de new."""
+    if proxy_old.empty:
+        return proxy_new.copy()
+    if proxy_new.empty:
+        return proxy_old.copy()
+
+    corte_nuevo = proxy_new["timestamp"].min() + timedelta(hours=24)
+    corte_viejo = proxy_old["timestamp"].max() - timedelta(hours=48)
+    corte = max(corte_nuevo, corte_viejo)
+
+    old_part = proxy_old[proxy_old["timestamp"] < corte].copy()
+    new_part = proxy_new[proxy_new["timestamp"] >= corte].copy()
+
+    merged = pd.concat([old_part, new_part], ignore_index=True)
+    merged = merged.sort_values("timestamp").drop_duplicates(subset=["timestamp"], keep="last")
+    return merged
 
 
 def _ejecutar_script(script_relativo: str) -> tuple[bool, str]:
@@ -199,15 +259,17 @@ def actualizar_ahora(estaciones: tuple[str, ...] = ESTACIONES_DEFAULT) -> dict[s
     except Exception as e:
         return {"ok": False, "error": f"Error inspeccionando dataset: {e}"}
 
-    # 4. Para cada estación, consultar rango [último_ts, ahora]
+    # 4. Para cada estación, consultar rango [último_ts, ahora] con paginación
     filas_nuevas_por_estacion = {}
-    ahora = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    ultima_lectura_por_estacion = {}
+    ahora = datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%dT%H:%M:%S")
 
     for codigo in estaciones:
         try:
             ultimo_ts = _leer_ultimo_ts(codigo)
             if ultimo_ts >= ahora:
                 filas_nuevas_por_estacion[codigo] = 0
+                ultima_lectura_por_estacion[codigo] = ultimo_ts
                 continue
 
             # Construir where clause con candidatos de código
@@ -218,41 +280,63 @@ def actualizar_ahora(estaciones: tuple[str, ...] = ESTACIONES_DEFAULT) -> dict[s
                 f"({where_base}) and fechaobservacion between '{ultimo_ts}' and '{ahora}'"
             )
 
-            resultados = client.get(
-                DATASET_HISTORICO,
-                where=where_rango,
-                order=":id",
-                limit=5000,
-            )
+            resultados = _consultar_paginado(client, DATASET_HISTORICO, where_rango)
 
             if resultados:
                 df_nuevo = pd.DataFrame.from_records(resultados)
                 n_nuevas = _append_sin_duplicados(codigo, df_nuevo)
                 filas_nuevas_por_estacion[codigo] = n_nuevas
+                # Última fechaobservacion del CSV resultante
+                df_csv = pd.read_csv(DATA_RAW_DIR / f"historico_{codigo}.csv")
+                ult_ts = pd.to_datetime(df_csv["fechaobservacion"], errors="coerce").max()
+                ultima_lectura_por_estacion[codigo] = (
+                    ult_ts.strftime("%Y-%m-%d %H:%M") if pd.notna(ult_ts) else ""
+                )
             else:
                 filas_nuevas_por_estacion[codigo] = 0
+                ultima_lectura_por_estacion[codigo] = ""
 
         except Exception as e:
             return {"ok": False, "error": f"Error consultando estación {codigo}: {e}"}
 
-    # 5. Ejecutar pipeline en orden
-    pipeline = [
-        "simulate/04_scs_cn_proxy.py",
-        "simulate/06_etl_features.py",
-        "simulate/09_gateway_simulado.py",
-    ]
-    for script in pipeline:
-        ok, out = _ejecutar_script(script)
-        if not ok:
-            return {"ok": False, "error": out}
+    # 5. Guardar proxy anterior en memoria antes de que 04 lo sobrescriba
+    PROXY_PATH = DATA_PROCESSED_DIR / "proxy_q_la_honda.csv"
+    proxy_old = pd.DataFrame()
+    if PROXY_PATH.exists():
+        try:
+            proxy_old = pd.read_csv(PROXY_PATH, parse_dates=["timestamp"])
+        except Exception:
+            proxy_old = pd.DataFrame()
 
-    # 6. Regenerar BD SQLite
+    # 6. Ejecutar pipeline en orden
+    ok, out = _ejecutar_script("simulate/04_scs_cn_proxy.py")
+    if not ok:
+        return {"ok": False, "error": out}
+
+    # Fusionar proxy para no perder el histórico
+    if not proxy_old.empty and PROXY_PATH.exists():
+        try:
+            proxy_new = pd.read_csv(PROXY_PATH, parse_dates=["timestamp"])
+            proxy_merged = _fusionar_proxy(proxy_old, proxy_new)
+            proxy_merged.to_csv(PROXY_PATH, index=False)
+        except Exception as e:
+            return {"ok": False, "error": f"Error fusionando proxy: {e}"}
+
+    ok, out = _ejecutar_script("simulate/06_etl_features.py")
+    if not ok:
+        return {"ok": False, "error": out}
+
+    ok, out = _ejecutar_script("simulate/09_gateway_simulado.py")
+    if not ok:
+        return {"ok": False, "error": out}
+
+    # 7. Regenerar BD SQLite
     try:
         _regenerar_bd_sqlite()
     except Exception as e:
         return {"ok": False, "error": f"Error regenerando BD SQLite: {e}"}
 
-    # 7. Obtener última lectura del log regenerado
+    # 8. Obtener última lectura del log regenerado
     LOG_PATH = DATA_PROCESSED_DIR / "log_gateway_simulado.csv"
     ultima_lectura = ""
     if LOG_PATH.exists():
@@ -263,6 +347,7 @@ def actualizar_ahora(estaciones: tuple[str, ...] = ESTACIONES_DEFAULT) -> dict[s
     return {
         "ok": True,
         "filas_nuevas_por_estacion": filas_nuevas_por_estacion,
+        "ultima_lectura_por_estacion": ultima_lectura_por_estacion,
         "ultima_lectura": ultima_lectura,
         "segundos": round(time.time() - inicio, 1),
     }

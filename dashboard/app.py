@@ -1610,6 +1610,20 @@ def main() -> None:
             resultado = actualizar_ahora()
         if resultado["ok"]:
             total_nuevas = sum(resultado["filas_nuevas_por_estacion"].values())
+            ultimas_est = resultado.get("ultima_lectura_por_estacion", {})
+            nombres_est = {
+                "0027015310": "Metromedellín",
+                "0027015330": "Olaya Herrera",
+            }
+            partes = []
+            for cod, nombre in nombres_est.items():
+                ts = ultimas_est.get(cod, "")
+                if ts:
+                    partes.append(f"{nombre} hasta {ts}")
+            msg_transparencia = ""
+            if len(partes) >= 2:
+                msg_transparencia = " · ".join(partes) + ". El tablero usa la última hora con al menos 2 estaciones."
+
             if total_nuevas == 0:
                 st.sidebar.info(
                     f"Sin datos nuevos en IDEAM — última disponible: {resultado['ultima_lectura']}"
@@ -1618,6 +1632,8 @@ def main() -> None:
                 st.sidebar.success(
                     f"{total_nuevas} lecturas nuevas — última: {resultado['ultima_lectura']}"
                 )
+            if msg_transparencia:
+                st.sidebar.caption(msg_transparencia)
             st.cache_data.clear()
             st.rerun()
         else:
