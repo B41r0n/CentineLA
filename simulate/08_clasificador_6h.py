@@ -133,7 +133,7 @@ def barrer_umbrales(proba_test, y_true, umbrales):
             f1 = 2 * prec * rec / (prec + rec)
 
         cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
-        tn, fp, fn, tp = int(cm[0, 0]), int(cm[0, 1]), int(cm[1, 0]), int(cm[1, 1])
+        _tn, fp, fn, tp = int(cm[0, 0]), int(cm[0, 1]), int(cm[1, 0]), int(cm[1, 1])
         filas.append(
             {
                 "umbral": umbral,

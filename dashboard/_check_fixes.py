@@ -10,7 +10,6 @@ import importlib
 import app
 importlib.reload(app)
 import pandas as pd
-import numpy as np
 
 proxy = pd.read_csv(BASE_DIR / "data" / "processed" / "proxy_q_la_honda.csv", parse_dates=["timestamp"])
 proxy = proxy.sort_values("timestamp").reset_index(drop=True)

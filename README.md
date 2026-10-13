@@ -418,7 +418,7 @@ LOW_QUALITY_MIN_ESTACIONES = 2
 corte = int(n_total * 0.82)
 ```
 
-**Resultado real de la última corrida:**
+**Corrida del 27-jul-2026 (referencia histórica):**
 
 | Métrica | Valor |
 |---------|-------|
@@ -433,6 +433,8 @@ corte = int(n_total * 0.82)
 | Train 6 h | 35 315 |
 | Test 6 h | 7 753 |
 | `% target_6h == 0` | 91.86 % |
+
+> **Vigente al corte 2026-09-30 23:00:** dataset 6 h = 44,371 filas (train 35,316 / test 9,055).
 
 **Decisiones de diseño:**
 

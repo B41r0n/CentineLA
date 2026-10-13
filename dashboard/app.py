@@ -340,8 +340,8 @@ def _mapa_estatico(anclas: list[dict], nodos: list[dict], estado: str) -> None:
         markerfacecolor="white", markeredgecolor="#3498db",
         markersize=10, markeredgewidth=2.5, label="Ancla geográfica",
     )
-    leg = ax.legend(handles=[handle_estado, handle_ancla], loc="lower right", fontsize=8,
-                    facecolor="#13171d", edgecolor="#232830", labelcolor="#e8ecf1")
+    ax.legend(handles=[handle_estado, handle_ancla], loc="lower right", fontsize=8,
+              facecolor="#13171d", edgecolor="#232830", labelcolor="#e8ecf1")
     plt.tight_layout()
 
     buf = io.BytesIO()
@@ -351,7 +351,7 @@ def _mapa_estatico(anclas: list[dict], nodos: list[dict], estado: str) -> None:
     st.image(
         buf.getvalue(),
         caption="⚠️ Mapa estático (sin conexión detectada). Posiciones ilustrativas, no GPS de campo.",
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -426,7 +426,6 @@ def _hero_html(estado: str, proba: float, ultima_ts_str: str) -> str:
 
 def _estado_semaforo_html(estado: str, proba: float) -> str:
     """Semaforo compacto para el simulador: pill + prob + gauge."""
-    ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
     color_p = _color_proba(proba)
     return _compacto(f"""
 <div class="cl-card" style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px">
@@ -639,7 +638,7 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
     # 4. Lluvia acumulada: 3 tarjetas con _tarjeta_html en grid
     st.subheader("Lluvia acumulada")
     st.markdown(
-        _compacto(f'<div class="cl-grid3">'
+        _compacto('<div class="cl-grid3">'
         + _tarjeta_html("🌧️", "Últimas 24 horas", f"{ult_24h:.1f}", "mm")
         + _tarjeta_html("📅", "Últimos 30 días", f"{ult_30d:.1f}", "mm")
         + _tarjeta_html("📆", "Año en curso", f"{anio_mm:.1f}", "mm")
@@ -757,7 +756,7 @@ def _grafico_historico(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
             height=480,
         )
         _estilo_plotly(fig)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.caption(
             f"En este período: {len(alertas)} alertas y {len(precauciones)} precauciones. "
             "Las líneas verticales se muestran submuestreadas para rendimiento."
@@ -788,9 +787,9 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
                     return "color: #34d27b; font-weight: 600"
                 return ""
             styled = log_mostrar.style.map(color_estado, subset=["Estado de alerta"])
-            st.dataframe(styled, use_container_width=True)
+            st.dataframe(styled, width="stretch")
         except Exception:
-            st.dataframe(log_mostrar, use_container_width=True)
+            st.dataframe(log_mostrar, width="stretch")
 
     # 2. Comportamiento histórico de la cuenca
     _grafico_historico(log, proxy)
@@ -864,7 +863,7 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
                 xaxis_title="Importancia relativa",
             )
             _estilo_plotly(fig_imp)
-            st.plotly_chart(fig_imp, use_container_width=True)
+            st.plotly_chart(fig_imp, width="stretch")
             with st.expander("Detalle técnico"):
                 st.write(
                     "Modelo: RandomForestClassifier(n_estimators=200, random_state=42, "
@@ -915,7 +914,7 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
                 df_vals = pd.DataFrame([{c: round(float(fila[c]), 6) for c in cols_mostrar}])
                 df_vals = df_vals.T.rename(columns={0: "Valor"})
                 df_vals.index = [NOMBRES_LEGIBLES.get(idx, idx) for idx in df_vals.index]
-                st.dataframe(df_vals, use_container_width=True)
+                st.dataframe(df_vals, width="stretch")
 
     # 6. Simulador
     with st.container(border=True, key="card-simulador"):
@@ -948,7 +947,7 @@ _ESCENARIOS = {
 _GUIA_STATS = [
     {"valor": "6 h", "etiqueta": "anticipación"},
     {"valor": "2", "etiqueta": "estaciones IDEAM activas"},
-    {"valor": "43,068", "etiqueta": "horas de datos útiles (2016–2026)"},
+    {"valor": "44,371", "etiqueta": "horas útiles (2016 – 30-sep-2026)"},
     {"valor": "71.5%", "etiqueta": "detección en amarillo"},
     {"valor": "86.1%", "etiqueta": "precisión en rojo"},
     {"valor": "18", "etiqueta": "variables del modelo"},
@@ -1049,7 +1048,7 @@ _GUIA_FAQ = [
         "cat": "Datos y modelo",
         "q": "¿De dónde salen los datos?",
         "simple": "De estaciones oficiales del IDEAM, publicadas como datos abiertos de Colombia.",
-        "tecnico": "Dataset s54a-sgyg. Activas: Metromedellín (0027015310) y Olaya Herrera, sensor 240 (0027015330). Pajarito (0027015290) está suspendida desde 2020 y se excluye. Histórico 2016–2026: 83,458 registros horarios, 43,068 utilizables tras los filtros de calidad.",
+        "tecnico": "Dataset s54a-sgyg. Activas: Metromedellín (0027015310) y Olaya Herrera, sensor 240 (0027015330). Pajarito (0027015290) está suspendida desde 2020 y se excluye. 44,371 horas utilizables tras los filtros de calidad (corte de evaluación 30-sep-2026)."
     },
     {
         "cat": "Datos y modelo",
@@ -1142,7 +1141,7 @@ def _simulador_modelo(modelo) -> None:
     # ── escenarios rápidos ────────────────────────────────────────────────
     cols_btn = st.columns(len(_ESCENARIOS))
     for col, (nombre, vals) in zip(cols_btn, _ESCENARIOS.items()):
-        if col.button(nombre, use_container_width=True, key="btn_" + nombre[:6]):
+        if col.button(nombre, width="stretch", key="btn_" + nombre[:6]):
             for k, v in vals.items():
                 st.session_state[k] = v
 
@@ -1632,11 +1631,11 @@ def main() -> None:
 
     # Botón guía del proyecto en sidebar
     st.sidebar.divider()
-    if st.sidebar.button("📖 Estructura y preguntas frecuentes", key="btn-guia", use_container_width=True):
+    if st.sidebar.button("📖 Estructura y preguntas frecuentes", key="btn-guia", width="stretch"):
         dialog_guia()
 
     # Botón "Actualizar ahora" en sidebar
-    if st.sidebar.button("🔄 Actualizar ahora", use_container_width=True):
+    if st.sidebar.button("🔄 Actualizar ahora", width="stretch"):
         est = _estado_actualizacion()
         restante = est["proximo"] - time.time()
         if restante > 0:

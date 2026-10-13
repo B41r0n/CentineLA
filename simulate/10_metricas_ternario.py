@@ -110,7 +110,7 @@ def main():
     diff_rec = abs(rec_20 - 0.752998)
     diff_prec = abs(prec_20 - 0.415344)
     if diff_rec > 0.01 or diff_prec > 0.01:
-        print(f"\nADVERTENCIA: Diferencia > 0.01 respecto a la corrida de referencia.")
+        print("\nADVERTENCIA: Diferencia > 0.01 respecto a la corrida de referencia.")
         print(f"   Delta recall = {diff_rec:.6f}, Delta precision = {diff_prec:.6f}")
         print("   NO editar app.py con estos valores. Revisar consistencia del dataset/modelo.")
         return 1
