@@ -637,17 +637,20 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
 
     # 4. Lluvia acumulada: 3 tarjetas con _tarjeta_html en grid
     st.subheader("Lluvia acumulada")
+    _p_ok = proxy.dropna(subset=["P_basin"])
+    _ref_ts = proxy["timestamp"].max()
+    ult_7d = float(_p_ok[_p_ok["timestamp"] >= _ref_ts - pd.Timedelta(days=7)]["P_basin"].sum())
     st.markdown(
         _compacto('<div class="cl-grid3">'
         + _tarjeta_html("🌧️", "Últimas 24 horas", f"{ult_24h:.1f}", "mm")
-        + _tarjeta_html("📅", "Últimos 30 días", f"{ult_30d:.1f}", "mm")
-        + _tarjeta_html("📆", "Año en curso", f"{anio_mm:.1f}", "mm")
+        + _tarjeta_html("📅", "Últimos 7 días", f"{ult_7d:.1f}", "mm")
+        + _tarjeta_html("📆", "Últimos 30 días", f"{ult_30d:.1f}", "mm")
         + '</div>'),
         unsafe_allow_html=True,
     )
     st.caption(
-        "Cuánta lluvia ha caído en la cuenca. Más lluvia acumulada significa suelo "
-        "más saturado y mayor riesgo."
+        "Cuánta lluvia ha caído en la cuenca (promedio de las estaciones del IDEAM con "
+        "dato). Más lluvia acumulada significa suelo más saturado y mayor riesgo."
     )
 
     # 5. Historial de los últimos 90 días
@@ -772,10 +775,10 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
     with st.container(border=True, key="card-registro"):
         st.subheader("📋 Registro de lecturas recientes")
         st.caption(
-            "Las últimas 100 lecturas horarias del sistema. Cada fila muestra qué se midió "
-            "y qué estado calculó."
+            "Las últimas 100 lecturas horarias del sistema, la más reciente arriba. Cada "
+            "fila muestra qué se midió y qué estado calculó."
         )
-        log_mostrar = log.tail(100).rename(columns=NOMBRES_LEGIBLES)
+        log_mostrar = log.tail(100).iloc[::-1].rename(columns=NOMBRES_LEGIBLES).round(2)
         # Colorear columna Estado de alerta con pandas Styler
         try:
             def color_estado(val):
@@ -786,7 +789,7 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
                 elif val == "NORMAL":
                     return "color: #34d27b; font-weight: 600"
                 return ""
-            styled = log_mostrar.style.map(color_estado, subset=["Estado de alerta"])
+            styled = log_mostrar.style.map(color_estado, subset=["Estado de alerta"]).format(precision=2)
             st.dataframe(styled, width="stretch")
         except Exception:
             st.dataframe(log_mostrar, width="stretch")
@@ -798,8 +801,10 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
     with st.container(border=True, key="card-confiabilidad"):
         st.subheader("🎯 Confiabilidad del sistema")
         st.caption(
-            "Detectadas = de cada 100 crecientes reales, cuántas avisó el sistema. "
-            "Alertas reales = de cada 100 avisos, cuántos fueron crecientes de verdad. "
+            "Detectadas = de cada 100 horas de riesgo, cuántas avisó el sistema. "
+            "Acertados = de cada 100 avisos, cuántos coincidieron con una hora de riesgo. "
+            "Hora de riesgo = el proxy hidrológico (SCS-CN) estima escorrentía hacia la "
+            "quebrada en las 6 h siguientes; no son crecientes medidas en campo. "
             "Calculado sobre el periodo de prueba (2025-07-06 → 2026-09-30, 9,055 horas), "
             "que el modelo no vio al entrenar. No se recalcula en vivo — "
             "fuente: simulate/10_metricas_ternario.py."
@@ -812,23 +817,23 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
         c1, c2 = st.columns(2)
         with c1:
             st.metric(
-                "Crecientes detectadas (desde precaución)",
+                "Horas de riesgo detectadas (desde precaución)",
                 f"{RECALL_PRECAUCION:.1%}",
                 help="Recall con umbral 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
             )
             st.metric(
-                "Crecientes detectadas (solo alerta roja)",
+                "Horas de riesgo detectadas (solo alerta roja)",
                 f"{RECALL_ALERTA:.1%}",
                 help="Recall con umbral 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
             )
         with c2:
             st.metric(
-                "Alertas que fueron reales (desde precaución)",
+                "Avisos acertados (desde precaución)",
                 f"{PRECISION_PRECAUCION:.1%}",
                 help="Precisión con umbral 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
             )
             st.metric(
-                "Alertas rojas que fueron reales",
+                "Alertas rojas acertadas",
                 f"{PRECISION_ALERTA:.1%}",
                 help="Precisión con umbral 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
             )
@@ -877,7 +882,7 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
     with st.container(border=True, key="card-consulta"):
         st.subheader("🔎 Consultar un momento específico")
         st.caption(
-            "Elegí una fecha y hora para ver qué datos recibió el sistema en ese momento "
+            "Elige una fecha y hora para ver qué datos recibió el sistema en ese momento "
             "y qué estado calculó."
         )
         fecha_min_log = log["timestamp"].dt.date.min()
@@ -1134,7 +1139,7 @@ _GUIA_FAQ = [
 def _simulador_modelo(modelo) -> None:
     st.subheader("🧪 Simular un escenario de lluvia")
     st.caption(
-        "Ingresá condiciones hipotéticas para ver cómo respondería el sistema. Útil "
+        "Ingresa condiciones hipotéticas para ver cómo respondería el sistema. Útil "
         "para entender cuándo se activa cada estado."
     )
 

@@ -240,7 +240,7 @@ Causa: 0.85% de eventos en el dataset. RF diluyeresiduals hacia la media estruct
 
 **Parámetros:** Train 35,316 filas (hasta 2025-07-06 16:00), Test 9,055 filas (2025-07-06 17:00 → 2026-09-30), 417 positivos en test. Reproducible con `python simulate/10_metricas_ternario.py`.
 
-**Lectura:** el amarillo captura más crecientes (71%) pero la mitad de sus avisos son falsas alarmas; el rojo detecta menos (55%) pero 86% de sus avisos son reales.
+**Lectura:** el amarillo avisa en más horas de riesgo (71%) pero la mitad de sus avisos no coinciden con una; el rojo detecta menos (55%) pero 86% de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
 
 Techo real de recall aislado: ~0.82. Limitación mitigada por fusión multi-fuente en la arquitectura.
 
