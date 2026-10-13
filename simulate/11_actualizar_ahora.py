@@ -100,13 +100,27 @@ def _leer_ultimo_ts(codigo: str) -> str:
 
 
 def _append_sin_duplicados(codigo: str, df_nuevo: pd.DataFrame) -> int:
-    """Append al CSV histórico evitando duplicados por (fechaobservacion, codigoestacion).
-    Devuelve número de filas nuevas añadidas."""
+    """Append al CSV histórico evitando duplicados por estación, sensor y timestamp.
+
+    La deduplicación usa (fechaobservacion, codigoestacion, codigosensor) porque
+    una estación puede tener varios sensores (ej. Olaya 240 y 257) compartiendo
+    timestamp. Se normalizan los códigos a string sin ceros a la izquierda para
+    evitar conflictos de dtype (CSV leído como int vs. API que devuelve str).
+    Devuelve número de filas nuevas añadidas.
+    """
     path = DATA_RAW_DIR / f"historico_{codigo}.csv"
     DATA_RAW_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Forzar dtype string en los códigos clave para consistencia con la API.
+    for c in ("codigoestacion", "codigosensor"):
+        if c in df_nuevo.columns:
+            df_nuevo[c] = df_nuevo[c].astype(str).str.lstrip("0")
+
     if path.exists():
-        df_existente = pd.read_csv(path)
+        df_existente = pd.read_csv(
+            path, dtype={"codigoestacion": str, "codigosensor": str}
+        )
+
         # Normalizar columnas de fecha
         if "fechaobservacion" in df_existente.columns:
             df_existente["fechaobservacion"] = pd.to_datetime(
@@ -117,8 +131,17 @@ def _append_sin_duplicados(codigo: str, df_nuevo: pd.DataFrame) -> int:
                 df_nuevo["fechaobservacion"], errors="coerce"
             )
 
-        # Key de deduplicación
-        key_cols = [c for c in ["fechaobservacion", "codigoestacion"] if c in df_existente.columns and c in df_nuevo.columns]
+        # Normalizar códigos del existente también (CSV puede traerlos como int)
+        for c in ("codigoestacion", "codigosensor"):
+            if c in df_existente.columns:
+                df_existente[c] = df_existente[c].astype(str).str.lstrip("0")
+
+        # Key de deduplicación: timestamp + estación + sensor
+        key_cols = [
+            c
+            for c in ["fechaobservacion", "codigoestacion", "codigosensor"]
+            if c in df_existente.columns and c in df_nuevo.columns
+        ]
         if key_cols:
             df_combined = pd.concat([df_existente, df_nuevo], ignore_index=True)
             df_combined = df_combined.drop_duplicates(subset=key_cols, keep="last")
