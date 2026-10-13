@@ -49,15 +49,13 @@ ESTACIONES_DEFAULT = ("0027015310", "0027015330")  # Metromedellin, Olaya Herrer
 FECHA_INICIO_DEFAULT = "2026-09-30T18:00:00"  # día después del último dato conocido
 
 
-def _partes_dominio():
-    """Devuelve las partes del dominio ofuscado (misma técnica que 02_pull_historico)."""
-    return [chr(119) * 2 + chr(119), "datos", "gov", "co"]
+DOMINIO = "www.datos.gov.co"
 
 
-def _get_client(username: str, password: str, app_token: str | None = None) -> Socrata:
-    """Crea cliente Socrata con el dominio ofuscado."""
+def _get_client(username: str | None, password: str | None, app_token: str | None = None) -> Socrata:
+    """Crea cliente Socrata. username/password son opcionales si hay app_token."""
     return Socrata(
-        ".".join(_partes_dominio()),
+        DOMINIO,
         app_token,
         username=username,
         password=password,
@@ -270,16 +268,13 @@ def actualizar_ahora(estaciones: tuple[str, ...] = ESTACIONES_DEFAULT) -> dict[s
     """
     inicio = time.time()
 
-    # 1. Credenciales
-    username = os.environ.get("SODAPY_USERNAME")
-    password = os.environ.get("SODAPY_PASSWORD")
+    # 1. Credenciales: app_token es suficiente para datos abiertos
+    username = os.environ.get("SODAPY_USERNAME") or None
+    password = os.environ.get("SODAPY_PASSWORD") or None
     app_token = os.environ.get("SODAPY_APP_TOKEN")
 
-    if not username or not password:
-        return {
-            "ok": False,
-            "error": "Faltan credenciales SODAPY_USERNAME/SODAPY_PASSWORD",
-        }
+    if not app_token and not (username and password):
+        return _error("Falta SODAPY_APP_TOKEN en los secrets")
 
     # 2. Cliente Socrata
     try:

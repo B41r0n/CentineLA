@@ -11,6 +11,7 @@ venv_test/
 Thumbs.db
 .vscode/
 .idea/
+.streamlit/secrets.toml
 data/raw/*.csv
 data/processed/centinela.db
 data/processed/dataset_12h.csv

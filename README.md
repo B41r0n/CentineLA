@@ -891,33 +891,32 @@ En Windows PowerShell:
 Copy-Item .env.example .env
 ```
 
-Edita `.env` y completa al menos estas variables antes de ejecutar `02_pull_historico.py`:
+Edita `.env` y completa al menos esta variable antes de ejecutar `02_pull_historico.py` o el botón **Actualizar ahora**:
 
 ```text
-SODAPY_USERNAME=<tu-usuario-de-socrata>
-SODAPY_PASSWORD=<tu-contraseña-de-socrata>
+SODAPY_APP_TOKEN=<tu-app-token-de-socrata>
 ```
 
-**Obligatorias para Fase 1:**
+**Obligatoria:**
 
 | Variable | Script que la usa | Descripción |
 |----------|-------------------|-------------|
-| `SODAPY_USERNAME` | `scripts/02_pull_historico.py` | Usuario de la cuenta Socrata en datos.gov.co |
-| `SODAPY_PASSWORD` | `scripts/02_pull_historico.py` | Contraseña de la cuenta Socrata |
+| `SODAPY_APP_TOKEN` | `scripts/02_pull_historico.py`, `simulate/11_actualizar_ahora.py` | Token de la cuenta Socrata en datos.gov.co. Es suficiente para datos abiertos. |
 
 **Opcionales:**
 
 | Variable | Script que la usa | Descripción |
 |----------|-------------------|-------------|
-| `SODAPY_APP_TOKEN` | `scripts/02_pull_historico.py` | Token opcional de Socrata para evitar rate limits estrictos |
+| `SODAPY_USERNAME` | `scripts/02_pull_historico.py`, `simulate/11_actualizar_ahora.py` | Usuario de Socrata (solo si no usás app_token) |
+| `SODAPY_PASSWORD` | `scripts/02_pull_historico.py`, `simulate/11_actualizar_ahora.py` | Contraseña de Socrata (solo si no usás app_token) |
 | `WIFI_SSID` | Nodos IoT (futuro) | Red WiFi del prototipo ESP32 |
 | `WIFI_PASSWORD` | Nodos IoT (futuro) | Contraseña de red WiFi del prototipo |
 | `UBIDOTS_TOKEN` | Nodos IoT (futuro) | Token de Ubidots para publicación MQTT |
 
-Si alguna variable obligatoria falta, `02_pull_historico.py` lanza:
+Si falta `SODAPY_APP_TOKEN` (y no hay usuario/clave), el botón **Actualizar ahora** muestra:
 
 ```text
-ValueError: SODAPY_USERNAME y SODAPY_PASSWORD deben estar definidos en el entorno. Copia .env.example a .env y completa los valores.
+Falta SODAPY_APP_TOKEN en los secrets
 ```
 
 ### 8.4 Seguridad y rotación de credenciales

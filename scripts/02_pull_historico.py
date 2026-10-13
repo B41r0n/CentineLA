@@ -291,19 +291,20 @@ def main():
         sys.exit(1)
 
     codigos = sys.argv[1:]
-    _partes_dominio = [chr(119)*2+chr(119), "datos", "gov", "co"]
+    DOMINIO = "www.datos.gov.co"
 
-    username = os.environ.get("SODAPY_USERNAME")
-    password = os.environ.get("SODAPY_PASSWORD")
-    if not username or not password:
+    username = os.environ.get("SODAPY_USERNAME") or None
+    password = os.environ.get("SODAPY_PASSWORD") or None
+    app_token = os.environ.get("SODAPY_APP_TOKEN")
+    if not app_token and not (username and password):
         raise ValueError(
-            "SODAPY_USERNAME y SODAPY_PASSWORD deben estar definidos en el entorno. "
+            "Se requiere SODAPY_APP_TOKEN, o bien SODAPY_USERNAME y SODAPY_PASSWORD. "
             "Copia .env.example a .env y completa los valores."
         )
 
     client = Socrata(
-        ".".join(_partes_dominio),
-        None,
+        DOMINIO,
+        app_token,
         username=username,
         password=password,
         timeout=180,
