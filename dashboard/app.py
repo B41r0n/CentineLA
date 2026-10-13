@@ -13,8 +13,9 @@ import base64
 import io
 import math
 import os
-import sys
 import textwrap
+import threading
+import time
 from pathlib import Path
 
 import joblib
@@ -28,6 +29,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_PATH = BASE_DIR / "data" / "processed" / "log_gateway_simulado.csv"
 PROXY_PATH = BASE_DIR / "data" / "processed" / "proxy_q_la_honda.csv"
 MODEL_PATH = BASE_DIR / "simulate" / "models" / "clf_6h.joblib"
+
+# Cooldown para el botón "Actualizar ahora" (segundos)
+COOLDOWN_OK_S = 600
+COOLDOWN_ERR_S = 60
+
+
+@st.cache_resource
+def _estado_actualizacion():
+    """Estado compartido para evitar dobles clics y cooldown entre reruns."""
+    return {"lock": threading.Lock(), "proximo": 0.0}
+
 
 # Cargar simulate/11_actualizar_ahora.py via importlib (nombre con número)
 _ACTUALIZAR_PATH = BASE_DIR / "simulate" / "11_actualizar_ahora.py"
@@ -486,7 +498,7 @@ def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
         'background:#e74c3c;border-radius:2px;vertical-align:middle"></span>'
     )
     leyenda = (
-        '<div style="display:flex;gap:16px;font-size:12px;color:var(--cl-muted)">'
+        '<div class="cl-leyenda" style="display:flex;gap:16px;font-size:12px;color:var(--cl-muted)">'
         + cuadro_n + " Normal&nbsp;&nbsp;"
         + cuadro_p + " Precaución&nbsp;&nbsp;"
         + cuadro_a + " Alerta"
@@ -1271,6 +1283,25 @@ _GUIA_CSS = _guia_block("""
   .cl-guia-conn {width:2px;height:24px;background:linear-gradient(180deg,#3498db,#1abc9c)}
   .cl-guia-stats {grid-template-columns:repeat(2,1fr)}
 }
+@media (max-width: 640px) {
+  /* header principal */
+  .cl-header-main .cl-header-row {flex-wrap:wrap}
+  .cl-header-main .cl-header-title {font-size:28px;white-space:normal;word-break:break-word}
+  .cl-header-main img {width:36px;height:46px}
+  .cl-header-main .cl-pill {white-space:normal}
+  /* tarjetas semáforo / hero */
+  div[data-testid="stHorizontalBlock"]:has(.st-key-card-hero) [data-testid="column"] {min-width:100%!important}
+  /* barra lateral / brand */
+  .cl-sidebar-brand {flex-wrap:wrap}
+  .cl-sidebar-brand .cl-sidebar-title {font-size:24px;white-space:normal;word-break:break-word}
+  .cl-sidebar-brand img {width:48px;height:60px}
+  /* leyenda del calendario */
+  .cl-leyenda {flex-wrap:wrap;gap:8px 16px}
+  /* elementos comunes: evitar overflow */
+  .cl-card {padding:14px}
+  .cl-chip .v {font-size:18px}
+  .cl-stat .v {font-size:24px}
+}
 </style>
 """)
 
@@ -1471,10 +1502,10 @@ def render_header(estado: str, ultima_lectura: str) -> None:
     """Renderiza el header con logo, título, subtítulos y badges (pills)."""
     st.markdown(
         f"""
-<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;overflow:visible">
-  <div style="display:flex;align-items:center;gap:8px;overflow:visible">
+<div class="cl-header-main" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;overflow:visible">
+  <div class="cl-header-row" style="display:flex;align-items:center;gap:8px;overflow:visible">
     <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="44" height="56" style="flex-shrink:0;object-fit:contain;display:block;vertical-align:middle" alt="CentineLA logo">
-    <div style="font-size:44px;font-weight:500;letter-spacing:-1px;color:#3498db;line-height:1;white-space:nowrap;flex-shrink:1;min-width:0">
+    <div class="cl-header-title" style="font-size:44px;font-weight:500;letter-spacing:-1px;color:#3498db;line-height:1;white-space:nowrap;flex-shrink:1;min-width:0">
       Centine<span style="color:#e74c3c">LA</span>
     </div>
   </div>
@@ -1580,9 +1611,9 @@ def main() -> None:
     # Logo + título en sidebar (grande, arriba a la izquierda)
     st.sidebar.markdown(
         f"""
-<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;justify-content:flex-start;overflow:visible">
+<div class="cl-sidebar-brand" style="display:flex;align-items:center;gap:10px;margin-bottom:6px;justify-content:flex-start;overflow:visible">
   <img src="data:image/svg+xml;base64,{_LOGO_B64}" width="76" height="95" style="flex-shrink:0;object-fit:contain;display:block;vertical-align:middle" alt="CentineLA logo">
-  <div style="font-size:38px;font-weight:500;letter-spacing:-1px;color:#3498db;line-height:1;white-space:nowrap;flex-shrink:1;min-width:0">
+  <div class="cl-sidebar-title" style="font-size:38px;font-weight:500;letter-spacing:-1px;color:#3498db;line-height:1;white-space:nowrap;flex-shrink:1;min-width:0">
     Centine<span style="color:#e74c3c">LA</span>
   </div>
 </div>
@@ -1606,38 +1637,75 @@ def main() -> None:
 
     # Botón "Actualizar ahora" en sidebar
     if st.sidebar.button("🔄 Actualizar ahora", use_container_width=True):
-        with st.spinner("Consultando IDEAM y recalculando..."):
-            resultado = actualizar_ahora()
-        if resultado["ok"]:
-            total_nuevas = sum(resultado["filas_nuevas_por_estacion"].values())
-            ultimas_est = resultado.get("ultima_lectura_por_estacion", {})
-            nombres_est = {
-                "0027015310": "Metromedellín",
-                "0027015330": "Olaya Herrera",
-            }
-            partes = []
-            for cod, nombre in nombres_est.items():
-                ts = ultimas_est.get(cod, "")
-                if ts:
-                    partes.append(f"{nombre} hasta {ts}")
-            msg_transparencia = ""
-            if len(partes) >= 2:
-                msg_transparencia = " · ".join(partes) + ". El tablero usa la última hora con al menos 2 estaciones."
+        est = _estado_actualizacion()
+        restante = est["proximo"] - time.time()
+        if restante > 0:
+            st.session_state["msg_actualizar"] = (
+                "info",
+                f"Datos actualizados hace poco. Intenta de nuevo en {int(restante // 60) + 1} min.",
+                "",
+            )
+        elif not est["lock"].acquire(blocking=False):
+            st.session_state["msg_actualizar"] = (
+                "info",
+                "Ya hay una actualización en curso. Espera unos segundos.",
+                "",
+            )
+        else:
+            ok = False
+            msg_tipo, msg_texto, msg_caption = "error", "No se pudo actualizar en este momento. Se mantienen los últimos datos guardados.", ""
+            try:
+                with st.spinner("Consultando IDEAM y recalculando..."):
+                    resultado = actualizar_ahora()
+                if resultado["ok"]:
+                    ok = True
+                    total_nuevas = sum(resultado["filas_nuevas_por_estacion"].values())
+                    ultimas_est = resultado.get("ultima_lectura_por_estacion", {})
+                    nombres_est = {
+                        "0027015310": "Metromedellín",
+                        "0027015330": "Olaya Herrera",
+                    }
+                    partes = []
+                    for cod, nombre in nombres_est.items():
+                        ts = ultimas_est.get(cod, "")
+                        if ts:
+                            partes.append(f"{nombre} hasta {ts}")
+                    msg_transparencia = ""
+                    if len(partes) >= 2:
+                        msg_transparencia = " · ".join(partes) + ". El tablero usa la última hora con al menos 2 estaciones."
 
-            if total_nuevas == 0:
-                st.sidebar.info(
-                    f"Sin datos nuevos en IDEAM — última disponible: {resultado['ultima_lectura']}"
-                )
-            else:
-                st.sidebar.success(
-                    f"{total_nuevas} lecturas nuevas — última: {resultado['ultima_lectura']}"
-                )
-            if msg_transparencia:
-                st.sidebar.caption(msg_transparencia)
+                    if total_nuevas == 0:
+                        msg_tipo, msg_texto = (
+                            "info",
+                            f"Sin datos nuevos en IDEAM — última disponible: {resultado['ultima_lectura']}",
+                        )
+                    else:
+                        msg_tipo, msg_texto = (
+                            "success",
+                            f"{total_nuevas} lecturas nuevas — última: {resultado['ultima_lectura']}",
+                        )
+                    msg_caption = msg_transparencia
+                else:
+                    msg_tipo, msg_texto = "error", msg_texto
+                    msg_caption = resultado["error"]
+            finally:
+                est["lock"].release()
+                est["proximo"] = time.time() + (COOLDOWN_OK_S if ok else COOLDOWN_ERR_S)
+
+            st.session_state["msg_actualizar"] = (msg_tipo, msg_texto, msg_caption)
             st.cache_data.clear()
             st.rerun()
+
+    if "msg_actualizar" in st.session_state:
+        tipo, texto, caption = st.session_state["msg_actualizar"]
+        if tipo == "success":
+            st.sidebar.success(texto)
+        elif tipo == "info":
+            st.sidebar.info(texto)
         else:
-            st.sidebar.error(f"No se pudo actualizar: {resultado['error']}")
+            st.sidebar.error(texto)
+        if caption:
+            st.sidebar.caption(caption)
 
     if vista == "Vista Pública":
         vista_publica(log, proxy)
