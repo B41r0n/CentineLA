@@ -479,7 +479,7 @@ def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
         celdas.append(celda)
 
     grid_html = (
-        '<div style="display:grid;grid-template-columns:repeat(18,1fr);'
+        '<div class="cl-cal" style="display:grid;grid-template-columns:repeat(18,1fr);'
         'gap:4px;max-width:100%;margin-bottom:8px">'
         + "".join(celdas)
         + "</div>"
@@ -1282,25 +1282,6 @@ _GUIA_CSS = _guia_block("""
   .cl-guia-conn {width:2px;height:24px;background:linear-gradient(180deg,#3498db,#1abc9c)}
   .cl-guia-stats {grid-template-columns:repeat(2,1fr)}
 }
-@media (max-width: 640px) {
-  /* header principal */
-  .cl-header-main .cl-header-row {flex-wrap:wrap}
-  .cl-header-main .cl-header-title {font-size:28px;white-space:normal;word-break:break-word}
-  .cl-header-main img {width:36px;height:46px}
-  .cl-header-main .cl-pill {white-space:normal}
-  /* tarjetas semáforo / hero */
-  div[data-testid="stHorizontalBlock"]:has(.st-key-card-hero) [data-testid="column"] {min-width:100%!important}
-  /* barra lateral / brand */
-  .cl-sidebar-brand {flex-wrap:wrap}
-  .cl-sidebar-brand .cl-sidebar-title {font-size:24px;white-space:normal;word-break:break-word}
-  .cl-sidebar-brand img {width:48px;height:60px}
-  /* leyenda del calendario */
-  .cl-leyenda {flex-wrap:wrap;gap:8px 16px}
-  /* elementos comunes: evitar overflow */
-  .cl-card {padding:14px}
-  .cl-chip .v {font-size:18px}
-  .cl-stat .v {font-size:24px}
-}
 </style>
 """)
 
@@ -1421,7 +1402,7 @@ CSS_GLOBAL = """
 :root{--cl-bg:#0b0d11;--cl-card:#13171d;--cl-border:rgba(255,255,255,.08);
 --cl-text:#e8ecf1;--cl-muted:#8b95a5;--cl-accent:#3498db;
 --cl-ok:#2ecc71;--cl-warn:#f39c12;--cl-danger:#e74c3c}
-[data-testid="stMainBlockContainer"]{padding-top:1.5rem;max-width:1400px}
+[data-testid="stMainBlockContainer"]{padding-top:4rem;max-width:1400px}
 [data-testid="stSidebarUserContent"]{padding-top:.25rem;overflow:visible}
 [data-testid="stSidebarHeader"]{padding-bottom:0}
 [data-testid="stMarkdownContainer"]{overflow:visible}
@@ -1459,6 +1440,26 @@ div[data-testid="stHorizontalBlock"]:has(.st-key-card-hero) [data-testid="stVert
 .st-key-btn-guia{margin-bottom:8px}
 .st-key-btn-guia button{width:100%;background:rgba(52,152,219,.08);border:1px solid #3498db;color:#e8ecf1;border-radius:12px;padding:10px 16px;font-weight:500;transition:all .2s ease}
 .st-key-btn-guia button:hover{background:rgba(52,152,219,.18);box-shadow:0 0 12px rgba(52,152,219,.25)}
+/* ── mobile (≤640px): vista principal ── */
+@media (max-width: 640px){
+/* header principal */
+.cl-header-main .cl-header-row{flex-wrap:wrap}
+.cl-header-main .cl-header-title{font-size:30px!important;white-space:normal!important}
+.cl-header-main img{width:36px;height:46px}
+.cl-header-main .cl-pill{white-space:normal}
+/* barra lateral / brand */
+.cl-sidebar-brand .cl-sidebar-title{font-size:30px!important}
+.cl-sidebar-brand img{width:56px;height:70px}
+/* calendario 90 días: 15 columnas y sin alto mínimo para que no desborde */
+.cl-cal{grid-template-columns:repeat(15,1fr)!important;gap:3px!important}
+.cl-cal>div{min-height:0!important}
+/* leyenda del calendario */
+.cl-leyenda{flex-wrap:wrap;gap:8px 16px!important}
+/* tarjetas y chips */
+.cl-card{padding:14px}
+.cl-chip .v{font-size:18px}
+.cl-stat .v{font-size:24px}
+}
 </style>
 """
 
