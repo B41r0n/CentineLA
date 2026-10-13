@@ -203,7 +203,8 @@ def _fusionar_proxy(proxy_old: pd.DataFrame, proxy_new: pd.DataFrame) -> pd.Data
 
 def _ejecutar_script(script_relativo: str) -> tuple[bool, str]:
     """Ejecuta un script del pipeline como subprocess.
-    Devuelve (ok, output/error)."""
+    Devuelve (ok, output/error). El detalle completo va a stderr; al dashboard
+    solo se devuelve un mensaje corto sin trazas."""
     script_path = BASE_DIR / script_relativo
     try:
         result = subprocess.run(
@@ -214,12 +215,18 @@ def _ejecutar_script(script_relativo: str) -> tuple[bool, str]:
             timeout=120,
         )
         if result.returncode != 0:
-            return False, f"{script_relativo} falló (code {result.returncode}): {result.stderr[:500]}"
+            print(
+                f"[actualizar_ahora] {script_relativo} falló (code {result.returncode}): {result.stderr[:2000]}",
+                file=sys.stderr,
+            )
+            return False, f"Falló el paso {Path(script_relativo).stem}"
         return True, result.stdout
     except subprocess.TimeoutExpired:
-        return False, f"{script_relativo} timeout (>120s)"
+        print(f"[actualizar_ahora] {script_relativo} timeout (>120s)", file=sys.stderr)
+        return False, f"El paso {Path(script_relativo).stem} tardó demasiado"
     except Exception as e:
-        return False, f"{script_relativo} error: {e}"
+        print(f"[actualizar_ahora] {script_relativo} error: {e}", file=sys.stderr)
+        return False, f"El paso {Path(script_relativo).stem} no pudo ejecutarse"
 
 
 def _regenerar_bd_sqlite() -> None:
@@ -250,6 +257,13 @@ def _asegurar_db_sembrada() -> None:
 _asegurar_db_sembrada()
 
 
+def _error(publico: str, detalle: str | None = None) -> dict[str, Any]:
+    """Loguea el detalle a stderr y devuelve un mensaje corto al dashboard."""
+    if detalle:
+        print(f"[actualizar_ahora] {detalle}", file=sys.stderr)
+    return {"ok": False, "error": publico}
+
+
 def actualizar_ahora(estaciones: tuple[str, ...] = ESTACIONES_DEFAULT) -> dict[str, Any]:
     """Ejecuta el flujo completo de actualización en vivo.
     Devuelve dict con ok=True/False y detalles o error.
@@ -271,16 +285,16 @@ def actualizar_ahora(estaciones: tuple[str, ...] = ESTACIONES_DEFAULT) -> dict[s
     try:
         client = _get_client(username, password, app_token)
     except Exception as e:
-        return {"ok": False, "error": f"Error creando cliente Socrata: {e}"}
+        return _error("No se pudo conectar con Socrata", f"Error creando cliente Socrata: {e}")
 
     # 3. Detectar campo de código (reusando lógica de 02)
     try:
         cols = inspecciona(client, DATASET_HISTORICO)
         campo_codigo = detecta_campo_codigo(cols)
         if campo_codigo is None:
-            return {"ok": False, "error": "No se detectó campo de código de estación en dataset histórico"}
+            return _error("No se detectó campo de código de estación en dataset histórico")
     except Exception as e:
-        return {"ok": False, "error": f"Error inspeccionando dataset: {e}"}
+        return _error("No se pudo inspeccionar el dataset", f"Error inspeccionando dataset: {e}")
 
     # 4. Para cada estación, consultar rango [último_ts, ahora] con paginación
     filas_nuevas_por_estacion = {}
@@ -320,7 +334,7 @@ def actualizar_ahora(estaciones: tuple[str, ...] = ESTACIONES_DEFAULT) -> dict[s
                 ultima_lectura_por_estacion[codigo] = ""
 
         except Exception as e:
-            return {"ok": False, "error": f"Error consultando estación {codigo}: {e}"}
+            return _error(f"Error consultando estación {codigo}", f"Error consultando estación {codigo}: {e}")
 
     # 5. Guardar proxy anterior en memoria antes de que 04 lo sobrescriba
     PROXY_PATH = DATA_PROCESSED_DIR / "proxy_q_la_honda.csv"
@@ -343,7 +357,7 @@ def actualizar_ahora(estaciones: tuple[str, ...] = ESTACIONES_DEFAULT) -> dict[s
             proxy_merged = _fusionar_proxy(proxy_old, proxy_new)
             proxy_merged.to_csv(PROXY_PATH, index=False)
         except Exception as e:
-            return {"ok": False, "error": f"Error fusionando proxy: {e}"}
+            return _error("Error fusionando proxy", f"Error fusionando proxy: {e}")
 
     ok, out = _ejecutar_script("simulate/06_etl_features.py")
     if not ok:
@@ -357,7 +371,7 @@ def actualizar_ahora(estaciones: tuple[str, ...] = ESTACIONES_DEFAULT) -> dict[s
     try:
         _regenerar_bd_sqlite()
     except Exception as e:
-        return {"ok": False, "error": f"Error regenerando BD SQLite: {e}"}
+        return _error("Error regenerando la base de datos", f"Error regenerando BD SQLite: {e}")
 
     # 8. Obtener última lectura del log regenerado
     LOG_PATH = DATA_PROCESSED_DIR / "log_gateway_simulado.csv"
