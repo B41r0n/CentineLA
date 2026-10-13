@@ -1533,11 +1533,9 @@ def main() -> None:
 
     # Cargar credenciales desde Streamlit secrets si existen (antes de cualquier uso)
     try:
-        if "SODAPY_USERNAME" in st.secrets:
-            os.environ.setdefault("SODAPY_USERNAME", st.secrets["SODAPY_USERNAME"])
-            os.environ.setdefault("SODAPY_PASSWORD", st.secrets["SODAPY_PASSWORD"])
-            if "SODAPY_APP_TOKEN" in st.secrets:
-                os.environ.setdefault("SODAPY_APP_TOKEN", st.secrets["SODAPY_APP_TOKEN"])
+        for k in ("SODAPY_APP_TOKEN", "SODAPY_USERNAME", "SODAPY_PASSWORD"):
+            if k in st.secrets:
+                os.environ.setdefault(k, str(st.secrets[k]))
     except Exception:
         pass
 
@@ -1642,7 +1640,7 @@ def main() -> None:
         if restante > 0:
             st.session_state["msg_actualizar"] = (
                 "info",
-                f"Datos actualizados hace poco. Intenta de nuevo en {int(restante // 60) + 1} min.",
+                f"Actualización reciente. Puedes intentar de nuevo en {int(restante // 60) + 1} min.",
                 "",
             )
         elif not est["lock"].acquire(blocking=False):
@@ -1697,7 +1695,7 @@ def main() -> None:
             st.rerun()
 
     if "msg_actualizar" in st.session_state:
-        tipo, texto, caption = st.session_state["msg_actualizar"]
+        tipo, texto, caption = st.session_state.pop("msg_actualizar")
         if tipo == "success":
             st.sidebar.success(texto)
         elif tipo == "info":
