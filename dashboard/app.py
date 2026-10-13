@@ -789,7 +789,7 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
         st.caption(
             "Detectadas = de cada 100 crecientes reales, cuántas avisó el sistema. "
             "Alertas reales = de cada 100 avisos, cuántos fueron crecientes de verdad. "
-            "Calculado sobre el periodo de prueba (2025-07-06 → 2026-09-30, 9,051 horas), "
+            "Calculado sobre el periodo de prueba (2025-07-06 → 2026-09-30, 9,055 horas), "
             "que el modelo no vio al entrenar. No se recalcula en vivo — "
             "fuente: simulate/10_metricas_ternario.py."
         )
@@ -1055,13 +1055,13 @@ _GUIA_FAQ = [
         "cat": "Datos y modelo",
         "q": "¿Qué predice exactamente el modelo?",
         "simple": "La probabilidad de que dentro de 6 horas la cuenca esté en condición de escurrir agua de forma importante, es decir, que la lluvia acumulada de 24 horas supere lo que el terreno alcanza a absorber.",
-        "tecnico": "Clase positiva = escorrentía SCS-CN a 6 h &gt; 0, equivalente a lluvia acumulada en 24 h por encima de ~11.8 mm (abstracción inicial con CN 81.1). Entrenamiento: 3,138 horas positivas de 35,315. Prueba: 417 de 9,051.",
+        "tecnico": "Clase positiva = escorrentía SCS-CN a 6 h &gt; 0, equivalente a lluvia acumulada en 24 h por encima de ~11.8 mm (abstracción inicial con CN 81.1). Entrenamiento: 3,138 horas positivas de 35,316. Prueba: 417 de 9,055.",
     },
     {
         "cat": "Datos y modelo",
         "q": "¿Qué tan confiable es?",
         "simple": "En pruebas con datos que el modelo no vio al entrenar, el nivel amarillo detecta cerca de 7 de cada 10 situaciones de riesgo y, cuando se activa el rojo, acierta cerca de 9 de cada 10 veces.",
-        "tecnico": "Validación cronológica 80/20 (corte 2025-07-06 15:00; prueba hasta 2026-09-30). Umbral ≥0.30: recall 71.5% · precisión 49.7%. Umbral ≥0.70: recall 54.9% · precisión 86.1%. Las métricas son frente al proxy hidrológico.",
+        "tecnico": "Validación cronológica 80/20 (corte 2025-07-06 16:00; prueba hasta 2026-09-30). Umbral ≥0.30: recall 71.5% · precisión 49.7%. Umbral ≥0.70: recall 54.9% · precisión 86.1%. Las métricas son frente al proxy hidrológico.",
     },
     {
         "cat": "Datos y modelo",

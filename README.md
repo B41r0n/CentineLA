@@ -396,7 +396,7 @@ features["mes"] = features.index.month
 
 6. **Targets:** crea `target_6h`, `target_12h`, `target_24h` con `base_horaria["Q_scs_proxy"].shift(-horizonte_horas)`.
 7. **Split cronológico:**
-   * Si ya existe un `dataset_{h}h.csv` previo con columna `split`, **preserva el corte** para no cambiar la evaluación entre corridas. Si existe un dataset previo, el ETL conserva su corte; en la corrida del 01-oct-2026 el corte se mantuvo en 2025-07-06 15:00.
+   * Si ya existe un `dataset_{h}h.csv` previo con columna `split`, **preserva el corte** para no cambiar la evaluación entre corridas. Si existe un dataset previo, el ETL conserva su corte; en la corrida del 01-oct-2026 el corte se mantuvo en 2025-07-06 16:00.
    * Si no, usa proporción **82/18** (`int(n_total * 0.82)`).
 8. **Guarda** `dataset_6h.csv` (y también genera `dataset_12h.csv`, `dataset_24h.csv` y `filas_baja_calidad.csv` si se desean).
 
@@ -586,7 +586,7 @@ RandomForestClassifier(
 | 0.30   | 0.714628  | 0.497496  | PRECAUCIÓN (amarillo) o más      |
 | 0.70   | 0.549161  | 0.860902  | ALERTA (rojo)                    |
 
-**Parámetros de la corrida:** Train 35,315 filas (hasta 2025-07-06 15:00), Test 9,055 filas (2025-07-06 16:00 → 2026-09-30), 417 positivos en test (label_6h=1). Reproducible con `python simulate/10_metricas_ternario.py`.
+**Parámetros de la corrida:** Train 35,316 filas (hasta 2025-07-06 16:00), Test 9,055 filas (2025-07-06 17:00 → 2026-09-30), 417 positivos en test (label_6h=1). Reproducible con `python simulate/10_metricas_ternario.py`.
 
 > Las métricas se calculan sobre el test hasta 2026-09-30; el dataset se extiende con las actualizaciones en vivo, pero la evaluación queda fija para que sea reproducible.
 
@@ -937,7 +937,7 @@ Solo se incluyen limitaciones confirmadas por el código o los datos:
 3. **CN estimado.** El CN compuesto de 81.1 depende de un reparto de área por tramo (40/30/30) y CN por tramo (70/92/85) que son supuestos de trabajo sin fuente oficial.
 4. **SCS-CN aplicado como evento único sobre serie continua.** El proxy usa acumulado 24 h sin reiniciar explícitamente eventos de lluvia; es una aproximación documentada.
 5. **Desbalance extremo.** Con `p90=0.0`, la clase positiva equivale a `target_6h > 0`, que representa ~8.9 % en entrenamiento y ~4.7 % en test.
-6. **No hay split aleatorio; es cronológico.** El test está fijado desde `2025-07-06 16:00` en adelante. Cualquier cambio estructural en los datos recientes afecta las métricas.
+6. **No hay split aleatorio; es cronológico.** El test está fijado desde `2025-07-06 17:00` en adelante. Cualquier cambio estructural en los datos recientes afecta las métricas.
 7. **Recall aislado del clasificador no supera ~0.82.** A umbral 0.10 se alcanza 0.817; a 0.20 es 0.743 (corrida del 27-jul-2026). El diseño asume que el clasificador será una de varias fuentes en una regla de fusión multi-sensor. El estado PRECAUCIÓN (0.30–0.70) amplía la vigilancia sin disparar la alerta máxima.
 8. **Modelos y datos grandes están parcialmente versionados.** Tras la limpieza del repositorio se trackean solo `proxy_q_la_honda.csv`, `dataset_6h.csv`, `log_gateway_simulado.csv` y `simulate/models/clf_6h.joblib`; los datasets 12h/24h, `filas_baja_calidad.csv`, el modelo baseline y los archivos de `data/raw/` se regeneran o comparten por otro canal.
 9. **Capa física (LoRa, sensores, cámaras) no implementada.** Solo existe el simulador y la arquitectura documentada.
@@ -968,7 +968,7 @@ Para uso bajo otros términos (por ejemplo, comercial): [b41r0nn@gmail.com](mail
 | CN por tramo alto/medio/bajo | 70 / 92 / 85 | `simulate/cuenca_la_honda_params.py` |
 | Mínimo estaciones | 2 | `LOW_QUALITY_MIN_ESTACIONES = 2` en `06` y `09` |
 | Horizontes generados | 6, 12, 24 h | `HORIZONTES = (6, 12, 24)` en `06` |
-| Split train/test | 80 / 20 cronológico (corte fijo 2025-07-06 15:00; train 35,315 filas, test 9,055 filas hasta 2026-09-30) | `06_etl_features.py` |
+| Split train/test | 80 / 20 cronológico (corte fijo 2025-07-06 16:00; train 35,316 filas, test 9,055 filas hasta 2026-09-30) | `06_etl_features.py` |
 | Estaciones usadas | 0027015290, 0027015310, 0027015330 | `04_scs_cn_proxy.py` |
 | Sensor canónico | 240 | `04_scs_cn_proxy.py` |
 | Sensor QA Olaya | 257 | `04_scs_cn_proxy.py` |
