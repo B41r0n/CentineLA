@@ -592,7 +592,7 @@ RandomForestClassifier(
 
 > Las métricas se calculan sobre el test hasta 2026-09-30; el dataset se extiende con las actualizaciones en vivo, pero la evaluación queda fija para que sea reproducible.
 
-**Lectura:** el amarillo captura más crecientes (71%) pero la mitad de sus avisos son falsas alarmas; el rojo detecta menos (55%) pero 86% de sus avisos son reales.
+**Lectura:** el amarillo avisa en más horas de riesgo (71%) pero la mitad de sus avisos no coinciden con una; el rojo detecta menos (55%) pero 86% de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
 
 **Observación importante sobre el recomendador automático:**
 
@@ -758,7 +758,7 @@ ANCLAS = [
 ### Vista Pública
 
 * **Estado actual de la quebrada:** semáforo con probabilidad y línea de acción según estado (NORMAL / PRECAUCIÓN / ALERTA).
-* **Lluvia acumulada:** tarjetas con últimas 24 h, 30 días y año en curso.
+* **Lluvia acumulada:** tarjetas con últimas 24 h, 7 días y 30 días (promedio de las estaciones con dato).
 * **Mapa de la quebrada y sus puntos de monitoreo:** 5 nodos interpolados por longitud de arco entre las 3 anclas (Folium interactivo / Matplotlib estático).
 * **Historial de los últimos 90 días:** cuadrícula día a día; verde = solo NORMAL, amarillo = hubo PRECAUCIÓN, rojo = hubo ALERTA.
 
