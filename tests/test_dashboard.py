@@ -89,3 +89,29 @@ def test_fecha_sin_lecturas_no_oculta_el_simulador():
     assert not at.exception
     assert any("Sin lecturas" in w.value for w in at.warning)
     assert any(b.label == "Simular" for b in at.button)
+
+
+def test_etiquetas_de_estado(app):
+    etiquetas = {e: ui["etiqueta"] for e, ui in app.ESTADO_UI.items()}
+    assert etiquetas == {"NORMAL": "Sin alerta", "PRECAUCIÓN": "Alerta naranja", "ALERTA": "Alerta roja"}
+    assert "Alerta roja" in app._pill("ALERTA", "Alerta roja")
+    assert app.ESTADO_UI["ALERTA"]["pill_txt"] in app._pill("ALERTA", "Alerta roja")
+
+
+def test_consulta_muestra_alerta_roja_con_su_color():
+    import datetime as dt
+
+    from streamlit.testing.v1 import AppTest
+
+    log = pd.read_csv(BASE_DIR / "data" / "processed" / "log_gateway_simulado.csv", parse_dates=["timestamp"])
+    fila = log[log["estado"] == "ALERTA"].iloc[-1]
+
+    at = AppTest.from_file(str(BASE_DIR / "dashboard" / "app.py"), default_timeout=180).run()
+    at.sidebar.radio[0].set_value("Vista Operador (JAC)").run()
+    next(d for d in at.date_input if d.label == "Seleccionar fecha").set_value(
+        dt.date.fromisoformat(str(fila["timestamp"].date()))
+    ).run()
+    next(s for s in at.selectbox if s.label == "Hora (hora local)").set_value(fila["timestamp"].strftime("%H:%M")).run()
+    assert not at.exception
+    estado = next(m.value for m in at.markdown if m.value.startswith("**Estado de alerta:**"))
+    assert "Alerta roja" in estado and "#ff6b5e" in estado

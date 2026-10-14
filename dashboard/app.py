@@ -90,6 +90,7 @@ ESTADO_UI = {
         "pill_txt": "#34d27b",
         "soft": "rgba(46,204,113,.14)",
         "banner": "NORMAL",
+        "etiqueta": "Sin alerta",
         "accion": "No hay señales de alerta. Monitoreo activo.",
     },
     "PRECAUCIÓN": {
@@ -97,6 +98,7 @@ ESTADO_UI = {
         "pill_txt": "#f5b041",
         "soft": "rgba(243,156,18,.14)",
         "banner": "PRECAUCIÓN — RIESGO MODERADO",
+        "etiqueta": "Alerta naranja",
         "accion": "La lluvia acumulada podría generar riesgo en las próximas 6 horas. Mantenerse atentos.",
     },
     "ALERTA": {
@@ -104,6 +106,7 @@ ESTADO_UI = {
         "pill_txt": "#ff6b5e",
         "soft": "rgba(231,76,60,.16)",
         "banner": "ALERTA — RIESGO EN LAS PRÓXIMAS 6 HORAS",
+        "etiqueta": "Alerta roja",
         "accion": "Riesgo de creciente en las próximas 6 horas. Activar protocolo de la JAC.",
     },
 }
@@ -809,17 +812,16 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
             "Las últimas 100 lecturas horarias del sistema, la más reciente arriba. Cada "
             "fila muestra qué se midió y qué estado calculó."
         )
-        log_mostrar = log.tail(100).iloc[::-1].rename(columns=NOMBRES_LEGIBLES).round(2)
+        log_mostrar = log.tail(100).iloc[::-1].copy()
+        # Estado como lo lee la comunidad: Sin alerta / Alerta naranja / Alerta roja
+        log_mostrar["estado"] = log_mostrar["estado"].map(lambda e: ESTADO_UI[e]["etiqueta"])
+        log_mostrar = log_mostrar.rename(columns=NOMBRES_LEGIBLES).round(2)
+        color_por_etiqueta = {ui["etiqueta"]: ui["pill_txt"] for ui in ESTADO_UI.values()}
         # Colorear columna Estado de alerta con pandas Styler
         try:
             def color_estado(val):
-                if val == "ALERTA":
-                    return "color: #ff6b5e; font-weight: 600"
-                elif val == "PRECAUCIÓN":
-                    return "color: #f5b041; font-weight: 600"
-                elif val == "NORMAL":
-                    return "color: #34d27b; font-weight: 600"
-                return ""
+                color = color_por_etiqueta.get(val)
+                return f"color: {color}; font-weight: 600" if color else ""
             styled = log_mostrar.style.map(color_estado, subset=["Estado de alerta"]).format(precision=2)
             st.dataframe(styled, width="stretch")
         except Exception:
@@ -947,7 +949,8 @@ def _detalle_lectura(log_dia: pd.DataFrame) -> None:
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown(f"**Fecha y hora:** `{fila['timestamp']}`")
-        st.markdown(f"**Estado de alerta:** `{fila['estado']}`")
+        etiqueta = ESTADO_UI[fila["estado"]]["etiqueta"]
+        st.markdown(f"**Estado de alerta:** {_pill(fila['estado'], etiqueta)}", unsafe_allow_html=True)
         st.markdown(f"**Probabilidad de riesgo:** `{fila['proba_alerta']:.4f}`")
 
     with col_b:
@@ -1570,12 +1573,12 @@ _LOGO_SVG = (
 _LOGO_B64 = base64.b64encode(_LOGO_SVG.encode("utf-8")).decode("ascii")
 
 
-def _pill(estado: str) -> str:
-    """Genera una pill de estado usando ESTADO_UI."""
+def _pill(estado: str, texto: str | None = None) -> str:
+    """Genera una pill de estado usando ESTADO_UI (texto: por defecto, el nombre del estado)."""
     ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
     return (
         f'<span class="cl-pill" style="background:{ui["soft"]};color:{ui["pill_txt"]}">'
-        f'<span class="cl-dot" style="background:{ui["color"]}"></span>{estado}</span>'
+        f'<span class="cl-dot" style="background:{ui["color"]}"></span>{texto or estado}</span>'
     )
 
 
