@@ -250,7 +250,7 @@ Causa: ~8 % de horas con escorrentía >0 (366 en el test de entonces, 4.7 %). El
 
 Modelo solo (control): 0.20 → 0.755396 / 0.405928 · 0.30 → 0.717026 / 0.491776 · 0.70 → 0.551559 / 0.855019. (Antes de reparar los datos de Olaya el 13-oct-2026, el sistema daba 0.578337 y 0.874525 de precisión en 0.30 y 0.70; los recall no cambiaron.)
 
-El barrido del 27-jul-2026 de arriba usaba `proba > umbral`; la versión del 03-oct-2026 también (0.714628 / 0.497496 en 0.30).
+El barrido del 27-jul-2026 de arriba usaba `proba > umbral`; la versión del 03-oct-2026 también (0.714628 / 0.497496 en 0.30). Esa versión es la que cita la cédula radicada el 12-oct-2026 (71.5 % / 49.7 % amarillo, 86.1 % rojo); el dashboard aclara la diferencia con las vigentes.
 
 **Parámetros:** Train 35,316 filas (hasta 2025-07-06 16:00), Test 9,056 filas (2025-07-06 17:00 → 2026-09-30), 417 positivos en test. Reproducible con `python simulate/10_metricas_ternario.py`.
 

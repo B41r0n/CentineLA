@@ -3,6 +3,7 @@
 """Tests del dashboard: calendario, simulador y criterio de umbrales."""
 
 import importlib.util
+from itertools import pairwise
 from pathlib import Path
 
 import matplotlib
@@ -115,3 +116,28 @@ def test_consulta_muestra_alerta_roja_con_su_color():
     assert not at.exception
     estado = next(m.value for m in at.markdown if m.value.startswith("**Estado de alerta:**"))
     assert "Alerta roja" in estado and "#ff6b5e" in estado
+
+
+def test_mapa_muestra_el_piloto_de_la_cedula(app):
+    puntos = app.puntos_piloto()
+    tipos = [p["tipo"] for p in puntos]
+    assert tipos == ["pluviometro", "nodo", "nodo_camara", "nodo", "gateway"]
+    nodos = [p for p in puntos if p["tipo"].startswith("nodo")]
+    # Nodos cada ~500 m, el del medio en el punto del tramo medio
+    medio = app.RECORRIDO[1]
+    assert (nodos[1]["lat"], nodos[1]["lon"]) == (medio["lat"], medio["lon"])
+    for a, b in pairwise(nodos):
+        d_m = 1000 * app._haversine_km(a["lat"], a["lon"], b["lat"], b["lon"])
+        assert 490 <= d_m <= 510
+    # Gateway junto al nodo del medio; pluviómetro en la cuenca alta
+    gw = puntos[-1]
+    assert 1000 * app._haversine_km(gw["lat"], gw["lon"], medio["lat"], medio["lon"]) < 300
+    assert (puntos[0]["lat"], puntos[0]["lon"]) == (app.RECORRIDO[0]["lat"], app.RECORRIDO[0]["lon"])
+
+
+def test_mapa_estatico_y_leyenda(app):
+    # El respaldo sin internet se dibuja sin errores y la leyenda nombra cada equipo
+    app._mapa_estatico(app.RECORRIDO, app.puntos_piloto(), "ALERTA")
+    html = app._leyenda_mapa_html("ALERTA")
+    for texto in ("Pluviómetro", "Nodo de cauce", "Nodo con cámara", "Gateway"):
+        assert texto in html

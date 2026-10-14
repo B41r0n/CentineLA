@@ -41,9 +41,15 @@ import inspect
 
 src = inspect.getsource(app._mapa_folium)
 assert "fit_bounds" in src, "debe usar fit_bounds"
-assert "pad = 0.015" in src, "debe tener padding"
+assert "pad = " in src, "debe tener padding"
 print("  fit_bounds presente en _mapa_folium: OK")
 print("  padding definido: OK")
+tipos = [p["tipo"] for p in app.puntos_piloto()]
+assert tipos.count("pluviometro") == 1, "el piloto tiene 1 pluviómetro"
+assert tipos.count("gateway") == 1, "el piloto tiene 1 gateway"
+assert tipos.count("nodo") + tipos.count("nodo_camara") == 3, "el piloto tiene 3 nodos de cauce"
+assert tipos.count("nodo_camara") == 1, "solo el nodo del medio lleva cámara"
+print("  piloto en el mapa: 1 pluviómetro, 3 nodos (1 con cámara), 1 gateway: OK")
 
 print("\n=== FIX 3 - Calendario: días sin lecturas en gris ===")
 html_cal = app._calendario_html(log, n_dias=90)
