@@ -1,13 +1,17 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Bairon Nicolás Calle Rivera
-from pathlib import Path
 import sys
+from pathlib import Path
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR / "dashboard"))
 import matplotlib
+
 matplotlib.use("Agg")
 import importlib
+
 import app
+
 importlib.reload(app)
 import pandas as pd
 
@@ -16,6 +20,7 @@ proxy = proxy.sort_values("timestamp").reset_index(drop=True)
 log = pd.read_csv(BASE_DIR / "data" / "processed" / "log_gateway_simulado.csv", parse_dates=["timestamp"])
 log["estado"] = log["proba_alerta"].apply(app.clasificar_estado)
 import joblib
+
 modelo = joblib.load(BASE_DIR / "simulate" / "models" / "clf_6h.joblib")
 
 print("=== FIX 1 - Lluvia acumulada ===")
@@ -33,6 +38,7 @@ print("  OK: ventanas deslizantes crecientes y ref_fecha es proxy.max()")
 
 print("\n=== FIX 2 - Mapa ===")
 import inspect
+
 src = inspect.getsource(app._mapa_folium)
 assert "fit_bounds" in src, "debe usar fit_bounds"
 assert "pad = 0.015" in src, "debe tener padding"
@@ -44,7 +50,7 @@ html_cal = app._calendario_html(log, n_dias=90)
 ultima = log["timestamp"].dt.date.max()
 dias = pd.date_range(ultima - pd.Timedelta(days=89), ultima, freq="D").date
 sin_datos = sum(d not in set(log["timestamp"].dt.date) for d in dias)
-celdas_grises = html_cal.count("sin datos\"")
+celdas_grises = html_cal.count("Sin datos\"")
 print(f"  días sin lecturas en la ventana: {sin_datos} | celdas grises: {celdas_grises}")
 assert celdas_grises == sin_datos, "cada día sin lecturas debe pintarse gris, no verde"
 assert "Sin datos" in html_cal, "la leyenda debe incluir 'Sin datos'"

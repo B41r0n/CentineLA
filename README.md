@@ -80,6 +80,7 @@ CentineLA/
 ├── .streamlit/config.toml                  # Tema oscuro del dashboard
 ├── requirements.txt                        # Dependencias de ejecución (versiones exactas)
 ├── requirements-dev.txt                    # Herramientas de desarrollo: pytest, ruff
+├── ruff.toml                               # Reglas de lint del proyecto (python -m ruff check .)
 ├── LICENSE                                 # Licencia AGPL-3.0
 ├── CENTINELA_CONTEXTO_TECNICO.md           # Contexto interno para asistentes de código
 │
@@ -537,13 +538,13 @@ Los tres regresores se guardaban como `rf_6h.joblib` (~61 725 KB), `rf_6h_delta.
 
 `simulate/08_clasificador_6h.py` entrena un clasificador binario (`target_6h > p90`). El dashboard (`dashboard/app.py`) y el gateway aplican a esa probabilidad la regla de lluvia seca (ver más abajo) y luego una escala ternaria, ambas definidas en `simulate/reglas_alerta.py`:
 
-| Estado | Rango de probabilidad | Color | "Estado de alerta" en la vista operador |
-|--------|----------------------|-------|-----------------------------------------|
+| Estado (interno) | Rango de probabilidad | Color | Lo que ve el usuario |
+|------------------|----------------------|-------|----------------------|
 | NORMAL | `proba < 0.30` | verde (#2ecc71) | Sin alerta |
-| PRECAUCIÓN | `0.30 ≤ proba < 0.70` | amarillo/naranja (#f39c12) | Alerta naranja |
+| PRECAUCIÓN | `0.30 ≤ proba < 0.70` | amarillo (#f1c40f) | Precaución |
 | ALERTA | `proba ≥ 0.70` | rojo (#e74c3c) | Alerta roja |
 
-La etiqueta de la última columna está en `ESTADO_UI[estado]["etiqueta"]` (`dashboard/app.py`); internamente, el log y el código siguen usando NORMAL / PRECAUCIÓN / ALERTA.
+El código de colores es verde / amarillo / rojo. Colores y etiquetas salen de una sola fuente, `ESTADO_UI` en `dashboard/app.py` (claves `color`, `etiqueta`, etc.), y todo lo que ve el usuario usa la etiqueta: pastillas, encabezado, barra lateral, calendario, gráfico, registro y consulta. Internamente, el log y el código siguen usando NORMAL / PRECAUCIÓN / ALERTA.
 
 **Target binario (entrenamiento):**
 
@@ -572,6 +573,8 @@ RandomForestClassifier(
 * Positivos train: 3 138 (8.89 %).
 * Positivos test: 417 (4.60 %).
 
+> `08_clasificador_6h.py` y `10_metricas_ternario.py` evalúan la misma ventana congelada (`FECHA_CORTE_EVALUACION = "2026-09-30 23:00"`, una prueba lo verifica); el entrenamiento no depende de esa fecha.
+>
 > La corrida original del 27-jul-2026 tenía `n test = 7 753` con 366 positivos (4.72 %); el reporte y el barrido de abajo son de esa corrida.
 
 **Resultados en test con threshold por defecto (0.5) — corrida del 27-jul-2026:**
@@ -753,7 +756,7 @@ timestamp,P_basin,Q_actual,Q_lag_1h,roll_sum_24h,hora_dia,mes,proba_modelo,proba
 
 ### 7.1 `dashboard/app.py` — Aplicación Streamlit
 
-**Header con logo y badges:** al iniciar, `render_header()` muestra el logo SVG (base64), el título "CentineLA" (con "LA" en rojo), subtítulos "Sistema integrado de vigilancia comunitaria" y "Quebrada La Honda · Comuna 4 · Medellín", y tres badges: "Prototipo activo · {estado}" (NORMAL/PRECAUCIÓN/ALERTA con su color), "Territorio INN 2026 · Reto #7", y "Datos al {fecha última lectura}".
+**Header con logo y badges:** al iniciar, `render_header()` muestra el logo SVG (base64), el título "CentineLA" (con "LA" en rojo), subtítulos "Sistema integrado de vigilancia comunitaria" y "Quebrada La Honda · Comuna 4 · Medellín", y tres badges: "Prototipo activo · {etiqueta}" (Sin alerta / Precaución / Alerta roja, con su color), "Territorio INN 2026 · Reto #7", y "Datos al {fecha última lectura}".
 
 **Apartado "¿De qué trata CentineLA?"** (`st.expander` expandido por defecto, visible en ambas vistas): tres columnas con "El problema", "Cómo funciona" y "Qué entrega", más caption de crédito del proyecto.
 
@@ -801,18 +804,18 @@ ANCLAS = [
 
 ### Vista Pública
 
-* **Estado actual de la quebrada:** semáforo con probabilidad y línea de acción según estado (NORMAL / PRECAUCIÓN / ALERTA).
+* **Estado actual de la quebrada:** semáforo con probabilidad de riesgo y línea de acción según estado (SIN ALERTA / PRECAUCIÓN / ALERTA ROJA).
 * **Lluvia acumulada:** tarjetas con últimas 24 h, 7 días y 30 días (promedio de las estaciones con dato).
 * **Mapa de la quebrada y sus puntos de monitoreo:** 5 nodos interpolados por longitud de arco entre las 3 anclas (Folium interactivo / Matplotlib estático).
-* **Historial de los últimos 90 días:** cuadrícula día a día; verde = solo NORMAL, amarillo = hubo PRECAUCIÓN, rojo = hubo ALERTA, **gris = sin lecturas ese día** (menos de 2 estaciones reportando; no significa "sin riesgo"). Al 2026-10-12 hay 22 días grises (25-jul → 20-ago-2026).
+* **Historial de los últimos 90 días:** cuadrícula día a día; verde = sin alerta, amarillo = hubo precaución, rojo = hubo alerta roja, **gris = sin lecturas ese día** (menos de 2 estaciones reportando; no significa "sin riesgo"). Al 2026-10-12 hay 22 días grises (25-jul → 20-ago-2026).
 
 ### Vista Operador (JAC)
 
-* **Registro de lecturas recientes:** tabla con las últimas 100 filas de `log_gateway_simulado.csv`, la más reciente arriba, con nombres legibles y 2 decimales. La columna "Estado de alerta" muestra Sin alerta / Alerta naranja / Alerta roja, cada una en su color.
+* **Registro de lecturas recientes:** tabla con las últimas 100 filas de `log_gateway_simulado.csv`, la más reciente arriba, con nombres legibles y 2 decimales. La columna "Estado de alerta" muestra Sin alerta / Precaución / Alerta roja, cada una en su color.
 * **Comportamiento histórico de la cuenca:** gráfico dual-axis `P_basin` / `Q_scs_proxy` con marcadores de PRECAUCIÓN (amarillo) y ALERTA (rojo); selector de rango de fechas.
 * **Confiabilidad del sistema:** 4 métricas (recall/precisión para PRECAUCIÓN y ALERTA) calculadas sobre el split de test cronológico con el mismo criterio `proba >= umbral` y la misma regla de lluvia seca del semáforo; fuente `simulate/10_metricas_ternario.py`. No se recalculan en vivo.
 * **¿Qué factores pesan más en la alerta?:** feature importance con etiquetas legibles; expander "Detalle técnico" con info del modelo.
-* **Consultar un momento específico:** selector de fecha y hora; muestra el estado como pastilla de color (Sin alerta / Alerta naranja / Alerta roja), la probabilidad de riesgo y las features con nombres legibles. Si la fecha no tiene lecturas, lo avisa sin ocultar el simulador.
+* **Consultar un momento específico:** selector de fecha y hora; muestra el estado como pastilla de color (Sin alerta / Precaución / Alerta roja), la probabilidad de riesgo y las features con nombres legibles. Si la fecha no tiene lecturas, lo avisa sin ocultar el simulador.
 * **Simular un escenario de lluvia:** 6 controles de lluvia (última hora y acumulados de 3 a 48 h), 3 presets, botón "Simular" y semáforo de resultado (ver §7.2).
 
 En la barra lateral están la guía del proyecto (estructura y preguntas frecuentes) y el botón **Actualizar ahora** (§8.4).
@@ -924,6 +927,7 @@ streamlit run dashboard/app.py
 ```bash
 python dashboard/_check_fixes.py
 python -m pytest -q tests
+python -m ruff check .     # lint con la configuración del proyecto (ruff.toml)
 ```
 
 ### 8.3 Variables de entorno

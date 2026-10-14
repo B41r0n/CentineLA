@@ -13,8 +13,8 @@ Uso:
     python 08_clasificador_6h.py
 """
 
-from pathlib import Path
 import os
+from pathlib import Path
 
 import joblib
 import pandas as pd
@@ -27,7 +27,6 @@ from sklearn.metrics import (
     recall_score,
 )
 
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PROCESSED_DIR = BASE_DIR / "data" / "processed"
 SIMULATE_MODELS_DIR = BASE_DIR / "simulate" / "models"
@@ -39,6 +38,10 @@ TARGET_COL = "target_6h"
 SPLIT_COL = "split"
 TIMESTAMP_COL = "timestamp"
 
+# Misma ventana de evaluación congelada que 10_metricas_ternario.py (deben coincidir).
+# No afecta al entrenamiento: el train termina en 2025-07-06 16:00.
+FECHA_CORTE_EVALUACION = "2026-09-30 23:00"
+
 
 def cargar_datos():
     if not DATASET_PATH.exists():
@@ -46,7 +49,7 @@ def cargar_datos():
 
     df = pd.read_csv(DATASET_PATH, parse_dates=[TIMESTAMP_COL])
     df = df.sort_values(TIMESTAMP_COL).reset_index(drop=True)
-    return df
+    return df[df[TIMESTAMP_COL] <= pd.Timestamp(FECHA_CORTE_EVALUACION)].reset_index(drop=True)
 
 
 def preparar_datos(df):

@@ -15,6 +15,7 @@ Salida:
 
 import math
 from pathlib import Path
+
 import pandas as pd
 from sodapy import Socrata
 

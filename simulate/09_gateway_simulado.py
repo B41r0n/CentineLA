@@ -20,22 +20,20 @@ Uso:
     python 09_gateway_simulado.py
 """
 
-from collections import deque
-from pathlib import Path
 import os
 import sys
+from collections import deque
+from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
-
 from reglas_alerta import (
     UMBRAL_ALERTA,
     UMBRAL_PRECAUCION,
     ajustar_proba,
     clasificar_estado,
 )
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PROCESSED_DIR = BASE_DIR / "data" / "processed"
@@ -159,8 +157,8 @@ def validar_alineacion_features(stream_features, dataset_batch, feature_cols):
 
     n = min(N_VALIDACION_TS, len(dataset_batch))
     muestra = dataset_batch.sample(n=n, random_state=42).copy()
-    merged = muestra[["timestamp"] + feature_cols].merge(
-        stream_features[["timestamp"] + feature_cols],
+    merged = muestra[["timestamp", *feature_cols]].merge(
+        stream_features[["timestamp", *feature_cols]],
         on="timestamp",
         how="left",
         suffixes=("_batch", "_stream"),
@@ -215,7 +213,7 @@ def _procesar_lote(modelo, feature_cols, lote_x, lote_meta, logs):
     probas_modelo = modelo.predict_proba(x_df)[:, 1]
     probas = ajustar_proba(probas_modelo, x_df["roll_sum_24h"].to_numpy())
 
-    for meta, proba_modelo, proba in zip(lote_meta, probas_modelo, probas):
+    for meta, proba_modelo, proba in zip(lote_meta, probas_modelo, probas, strict=True):
         estado = clasificar_estado(float(proba))
         registro = {
             "timestamp": meta["timestamp"],

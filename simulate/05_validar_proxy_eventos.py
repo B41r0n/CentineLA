@@ -19,7 +19,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PROCESSED_DIR = BASE_DIR / "data" / "processed"
 PROXY_PATH = DATA_PROCESSED_DIR / "proxy_q_la_honda.csv"
