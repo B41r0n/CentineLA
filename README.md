@@ -180,7 +180,7 @@ MUNICIPIOS_VALLE_ABURRA = {
 5. Descarga año por año, paginando en bloques de `page_size=5000`.
 6. Si un rango anual falla, lo **bisecciona recursivamente** hasta un piso de 7 días.
 7. Registra rangos que no se pudieron descargar en `data/raw/GAPS_<codigo>.txt`.
-8. Dedup por `[campo_codigo, fechaobservacion, codigosensor, valorobservado]`.
+8. Dedup por `[campo_codigo, fechaobservacion, codigosensor]` (una lectura por estación + sensor + hora, la última), la misma clave que usa la actualización en vivo (`11`). Así ambos caminos producen el mismo crudo.
 9. Guarda `data/raw/historico_<codigo>.csv` y, si aplica, `data/raw/tiemporeal_<codigo>.csv`.
 
 **Entrada:** códigos de estación por CLI, por ejemplo:
@@ -294,7 +294,7 @@ q.loc[lluvia] = (exceso**2) / (exceso + s)
 ```
 
 5. **Paso 4 — Guarda** `data/processed/proxy_q_la_honda.csv`.
-6. **Verificación obligatoria:** imprime cobertura, % NaN, % Q=0, mínimo, máximo, media y un chequeo del hueco de Metromedellín.
+6. **Verificación obligatoria:** imprime cobertura, % NaN, % Q=0, mínimo, máximo, media y un chequeo del hueco de Metromedellín (2019-02-18 16:00 → 2019-07-26 11:00).
 
 **Entrada:**
 
@@ -628,7 +628,7 @@ Si en las últimas 24 h no llovió nada (`roll_sum_24h == 0`), la probabilidad s
 
 **Observación importante sobre el recomendador automático:**
 
-El script `08_clasificador_6h.py` tiene una función `barrer_umbrales()` que recomienda automáticamente el umbral más bajo con `recall >= 0.85`. En la última corrida **ningún umbral en [0.1, 0.5] alcanza ese recall**, por lo que el script imprime:
+El script `08_clasificador_6h.py` tiene una función `barrer_umbrales()` que recomienda automáticamente el umbral más bajo con `recall >= 0.85`. En la corrida del 27-jul-2026 (criterio `>` de entonces) **ningún umbral en [0.1, 0.5] alcanzó ese recall**, y el script imprimió:
 
 ```text
 LIMITACION A DOCUMENTAR: ningun umbral del barrido alcanza recall >= 0.85.
@@ -751,7 +751,7 @@ timestamp,P_basin,Q_actual,Q_lag_1h,roll_sum_24h,hora_dia,mes,proba_modelo,proba
 
 ### 7.1 `dashboard/app.py` — Aplicación Streamlit
 
-**Header con logo y badges:** al iniciar, `render_header()` muestra el logo SVG (base64), el título "CentineLA" (con "LA" en rojo), subtítulos "Sistema integrado de vigilancia comunitaria" y "Quebrada La Honda · Comuna 4 · Medellín", y tres badges dinámicos: estado actual (NORMAL/PRECAUCIÓN/ALERTA con colores), "Territorio INN 2026 · Reto #7", y "Datos al {fecha última lectura}".
+**Header con logo y badges:** al iniciar, `render_header()` muestra el logo SVG (base64), el título "CentineLA" (con "LA" en rojo), subtítulos "Sistema integrado de vigilancia comunitaria" y "Quebrada La Honda · Comuna 4 · Medellín", y tres badges: "Prototipo activo · {estado}" (NORMAL/PRECAUCIÓN/ALERTA con su color), "Territorio INN 2026 · Reto #7", y "Datos al {fecha última lectura}".
 
 **Apartado "¿De qué trata CentineLA?"** (`st.expander` expandido por defecto, visible en ambas vistas): tres columnas con "El problema", "Cómo funciona" y "Qué entrega", más caption de crédito del proyecto.
 
@@ -976,7 +976,7 @@ El botón de la barra lateral ejecuta `actualizar_ahora()` de `simulate/11_actua
 1. Para Metromedellín y Olaya Herrera (Pajarito está suspendida) consulta en `s54a-sgyg` solo el rango desde la última lectura guardada hasta ahora, en hora de Colombia. Si `data/raw/` no existe (caso Streamlit Cloud, donde no se versiona), parte del último timestamp del proxy menos 72 h.
 2. Agrega las lecturas al CSV crudo sin duplicar por estación + sensor + timestamp.
 3. Corre `04` → `06` → `09`, fusionando el proxy nuevo con el anterior para no perder el histórico. Cada paso tiene un límite de 120 s.
-4. Regenera `data/processed/centinela.db` (tabla `lecturas`), una copia SQLite del log para consultas externas. **El dashboard no la lee**: lee los CSV.
+4. Regenera `data/processed/centinela.db` (tabla `lecturas`), una copia SQLite del log para consultas externas. **El dashboard no la lee**: lee los CSV. Si la base no existe, el dashboard la crea al iniciar; importar `11` no tiene efectos secundarios.
 5. Muestra "N lecturas nuevas" o "Sin datos nuevos", la última lectura por estación y recuerda que el tablero usa la última hora con al menos 2 estaciones.
 
 Si cualquier paso falla (incluida la validación batch vs streaming del gateway), se muestra un mensaje corto sin trazas, se conservan los datos anteriores y el botón queda en pausa 60 s; tras una actualización exitosa, la pausa es de 10 min. En el plan gratuito de Streamlit Cloud no hay disco persistente: al "despertar", la app vuelve a los CSV del repositorio.
@@ -1004,7 +1004,7 @@ Solo se incluyen limitaciones confirmadas por el código o los datos:
 9. **Capa física (LoRa, sensores, cámaras) no implementada.** Solo existe el simulador y la arquitectura documentada.
 10. **Prototipo IoT base documentado solo como referencia.** Los issues del sketch Wokwi (credenciales WiFi expuestas, `WiFiMulti`, umbral de temperatura) no se han resuelto en este repo.
 11. **El modelo, por sí solo, da avisos en horas sin lluvia; lo corrige una regla, no el modelo.** La hora del día y el mes pesan en el clasificador (~4.5 % y ~3.5 % de importancia), y en algunas combinaciones da PRECAUCIÓN o ALERTA con 0 mm en 24 h (233 avisos en el histórico, ninguno acertado en la ventana de prueba). La regla de lluvia seca (§5.2) los anula sin perder detecciones en 0.30/0.70, pero el modelo sigue sin estar calibrado en esas horas: si se reentrena, conviene evaluar quitar `hora_dia`/`mes` o regularizar los árboles, y revisar si la regla sigue siendo necesaria.
-12. **Huecos de datos.** Solo se infiere cuando hay al menos 2 estaciones y las 18 features completas; si no, no hay lectura. El calendario muestra esos días en gris (22 días entre el 25-jul y el 20-ago-2026).
+12. **Huecos de datos.** Solo se infiere cuando hay al menos 2 estaciones y las 18 features completas; si no, no hay lectura. Justo después de un hueco, los acumulados (hasta 48 h) se calculan con las horas disponibles, así que pueden subestimar la lluvia real; el ETL y el gateway lo hacen igual, así que es coherente con el entrenamiento. El calendario muestra esos días en gris (22 días entre el 25-jul y el 20-ago-2026).
 13. **Los datos pueden quedar atrasados.** El tablero muestra la última lectura disponible con su fecha ("Datos al …"), pero no alerta por sí solo si esa fecha es vieja; en el plan gratuito, tras "dormirse", vuelve a los CSV del repositorio hasta que alguien pulse **Actualizar ahora**.
 
 ---

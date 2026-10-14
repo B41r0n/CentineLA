@@ -93,7 +93,7 @@ def inspeccionar_csv(path):
 
     print(f"time_col: {time_col}")
     if time_col is not None:
-        ts = pd.to_datetime(df[time_col], errors="coerce")
+        ts = pd.to_datetime(df[time_col], format="ISO8601", errors="coerce")
         diffs = ts.sort_values().diff().dropna()
         print("median diff:", diffs.median())
         print("top diffs:")
@@ -119,7 +119,7 @@ def cargar_estacion(path):
         raise ValueError(f"No pude detectar columnas clave en {path.name}")
 
     df = df.copy()
-    df[time_col] = pd.to_datetime(df[time_col], errors="coerce")
+    df[time_col] = pd.to_datetime(df[time_col], format="ISO8601", errors="coerce")
     df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
     df = df.dropna(subset=[time_col])
 
@@ -203,8 +203,9 @@ def verificar_salida(path_out):
     print(f"Q_scs_proxy max: {q_no_nan.max():.6f}")
     print(f"Q_scs_proxy mean: {q_no_nan.mean():.6f}")
 
-    ventana = df[(df["timestamp"] >= "2019-07-01") & (df["timestamp"] <= "2020-12-31 23:00:00")]
-    print("\nChequeo del hueco de Metromedellin (jul-2019 -> dic-2020):")
+    # Hueco real confirmado contra el CSV crudo (ver METROMEDELLIN_GAP_* en 06_etl_features.py)
+    ventana = df[(df["timestamp"] >= "2019-02-18 16:00:00") & (df["timestamp"] <= "2019-07-26 11:00:00")]
+    print("\nChequeo del hueco de Metromedellin (2019-02-18 16:00 -> 2019-07-26 11:00):")
     print(f"filas en ventana: {len(ventana)}")
     print("n_estaciones_disponibles value_counts:")
     print(ventana["n_estaciones_disponibles"].value_counts(dropna=False).sort_index().to_string())

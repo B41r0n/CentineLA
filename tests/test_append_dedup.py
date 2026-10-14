@@ -62,3 +62,19 @@ def test_append_sin_duplicados_mantiene_ambos_sensores(act):
     )
     conteo = df["codigosensor"].astype(str).str.lstrip("0").value_counts().to_dict()
     assert conteo == {"240": 12, "257": 12}
+
+
+def test_primer_lote_con_duplicados_y_conteo_nunca_negativo(act):
+    # Producción (Streamlit Cloud): el CSV no existe y el lote trae la misma
+    # lectura dos veces (códigos con y sin ceros a la izquierda).
+    codigo = "0027015310"
+    lote = pd.DataFrame(
+        [
+            {"fechaobservacion": "2026-10-07T23:50:00.000", "codigoestacion": "0027015310",
+             "codigosensor": "0240", "valorobservado": "0"},
+            {"fechaobservacion": "2026-10-07 23:50:00", "codigoestacion": "27015310",
+             "codigosensor": "240", "valorobservado": "0.0"},
+        ]
+    )
+    assert act._append_sin_duplicados(codigo, lote) == 1
+    assert act._append_sin_duplicados(codigo, lote) == 0

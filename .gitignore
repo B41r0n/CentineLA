@@ -13,6 +13,7 @@ Thumbs.db
 .idea/
 .streamlit/secrets.toml
 data/raw/*.csv
+data/raw/GAPS_*.txt
 data/processed/centinela.db
 data/processed/dataset_12h.csv
 data/processed/dataset_24h.csv

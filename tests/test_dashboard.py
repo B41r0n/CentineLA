@@ -62,3 +62,30 @@ def test_q_scs_coincide_con_abstraccion_inicial(app):
     ia = 0.2 * ((25400 / app.CN) - 254)
     assert app._q_scs(ia) == 0.0
     assert app._q_scs(ia + 10) > 0
+
+
+def test_marcador_del_medidor_tiene_estilo(app):
+    # El marcador del gauge debe usar la clase que define el CSS (antes era invisible).
+    assert 'class="mk"' in app._gauge_html(0.5)
+    assert ".cl-gauge .mk{" in app.CSS_GLOBAL
+
+
+def test_fecha_sin_lecturas_no_oculta_el_simulador():
+    import datetime as dt
+
+    from streamlit.testing.v1 import AppTest
+
+    log = pd.read_csv(BASE_DIR / "data" / "processed" / "log_gateway_simulado.csv", parse_dates=["timestamp"])
+    con_datos = set(log["timestamp"].dt.date)
+    dias = pd.date_range(min(con_datos), max(con_datos), freq="D").date
+    sin_datos = [d for d in dias if d not in con_datos]
+    if not sin_datos:
+        pytest.skip("el log no tiene días sin lecturas")
+
+    at = AppTest.from_file(str(BASE_DIR / "dashboard" / "app.py"), default_timeout=180).run()
+    at.sidebar.radio[0].set_value("Vista Operador (JAC)").run()
+    fecha = next(d for d in at.date_input if d.label == "Seleccionar fecha")
+    fecha.set_value(dt.date.fromisoformat(str(sin_datos[-1]))).run()
+    assert not at.exception
+    assert any("Sin lecturas" in w.value for w in at.warning)
+    assert any(b.label == "Simular" for b in at.button)

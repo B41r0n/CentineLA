@@ -184,7 +184,7 @@ CentineLA/
 - Comentarios y docstrings en español
 - Rutas relativas desde `scripts/` (`../data/raw/...`) — **siempre `os.makedirs(..., exist_ok=True)` antes de escribir**, no asumir que la carpeta existe (ya mordió una vez por carpetas vacías perdidas en un zip)
 - Rutas de salida robustas: los scripts ya calculan `data/raw` desde la ubicación del archivo con `Path(__file__)`, para que funcionen igual desde `scripts/` o desde el root del proyecto
-- `pull_dataset` en `02_pull_historico.py` pagina por fecha con tamaño fijo de página, loguea cuántas páginas/filas trajo, deduplica por `campo_codigo`, `fechaobservacion`, `codigosensor` y `valorobservado`, e imprime un resumen de `codigosensor`/`descripcionsensor` si hay más de un sensor por estación
+- `pull_dataset` en `02_pull_historico.py` pagina por fecha con tamaño fijo de página, loguea cuántas páginas/filas trajo, deduplica por `campo_codigo`, `fechaobservacion` y `codigosensor` (misma clave que `11_actualizar_ahora.py`), e imprime un resumen de `codigosensor`/`descripcionsensor` si hay más de un sensor por estación
 - Nunca split aleatorio en datos de series de tiempo
 - Scripts standalone ejecutables con `python nombre.py`, no notebooks
 - Nombres de columna: siempre inspeccionar schema real antes de filtrar (Socrata cambia convenciones entre datasets) — no asumir nombres de campo a ciegas

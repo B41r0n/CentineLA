@@ -14,7 +14,8 @@ Flujo:
    fusionando el proxy nuevo con el anterior para no perder el histórico
 5. Regenera data/processed/centinela.db (tabla lecturas) desde log_gateway_simulado.csv.
    Es una copia de respaldo para consultas externas: el dashboard lee los CSV.
-6. Siembra la BD al importar el módulo si no existe (lazy)
+6. _asegurar_db_sembrada() crea la BD si no existe; la llama el dashboard al iniciar
+   (importar este módulo no tiene efectos secundarios)
 
 Si cualquier paso falla (incluida la validación batch vs streaming de 09, que sale
 con código != 0), se devuelve ok=False y el log anterior se conserva.
@@ -81,7 +82,7 @@ def _leer_ultimo_ts(codigo: str) -> str:
             df = pd.read_csv(path, usecols=["fechaobservacion"])
             if df.empty:
                 return FECHA_INICIO_DEFAULT
-            df["fechaobservacion"] = pd.to_datetime(df["fechaobservacion"], errors="coerce")
+            df["fechaobservacion"] = pd.to_datetime(df["fechaobservacion"], format="ISO8601", errors="coerce")
             df = df.dropna(subset=["fechaobservacion"])
             if df.empty:
                 return FECHA_INICIO_DEFAULT
@@ -112,55 +113,51 @@ def _append_sin_duplicados(codigo: str, df_nuevo: pd.DataFrame) -> int:
     una estación puede tener varios sensores (ej. Olaya 240 y 257) compartiendo
     timestamp. Se normalizan los códigos a string sin ceros a la izquierda para
     evitar conflictos de dtype (CSV leído como int vs. API que devuelve str).
+    El lote nuevo también se deduplica (incluso si el CSV aún no existe), y el
+    conteo se hace contra las claves ya guardadas, así que nunca es negativo.
     Devuelve número de filas nuevas añadidas.
     """
     path = DATA_RAW_DIR / f"historico_{codigo}.csv"
     DATA_RAW_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Forzar dtype string en los códigos clave para consistencia con la API.
-    for c in ("codigoestacion", "codigosensor"):
-        if c in df_nuevo.columns:
-            df_nuevo[c] = df_nuevo[c].astype(str).str.lstrip("0")
-
-    if path.exists():
-        df_existente = pd.read_csv(
-            path, dtype={"codigoestacion": str, "codigosensor": str}
-        )
-
-        # Normalizar columnas de fecha
-        if "fechaobservacion" in df_existente.columns:
-            df_existente["fechaobservacion"] = pd.to_datetime(
-                df_existente["fechaobservacion"], errors="coerce"
-            )
-        if "fechaobservacion" in df_nuevo.columns:
-            df_nuevo["fechaobservacion"] = pd.to_datetime(
-                df_nuevo["fechaobservacion"], errors="coerce"
-            )
-
-        # Normalizar códigos del existente también (CSV puede traerlos como int)
+    def _normalizar(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        # Códigos como string sin ceros a la izquierda (la API y el CSV difieren en dtype)
         for c in ("codigoestacion", "codigosensor"):
-            if c in df_existente.columns:
-                df_existente[c] = df_existente[c].astype(str).str.lstrip("0")
+            if c in df.columns:
+                df[c] = df[c].astype(str).str.lstrip("0")
+        if "fechaobservacion" in df.columns:
+            df["fechaobservacion"] = pd.to_datetime(df["fechaobservacion"], format="ISO8601", errors="coerce")
+        return df
 
-        # Key de deduplicación: timestamp + estación + sensor
-        key_cols = [
-            c
-            for c in ["fechaobservacion", "codigoestacion", "codigosensor"]
-            if c in df_existente.columns and c in df_nuevo.columns
-        ]
-        if key_cols:
-            df_combined = pd.concat([df_existente, df_nuevo], ignore_index=True)
-            df_combined = df_combined.drop_duplicates(subset=key_cols, keep="last")
-            filas_nuevas = len(df_combined) - len(df_existente)
-            df_combined.to_csv(path, index=False)
-            return filas_nuevas
-        else:
-            # Fallback: append todo
-            df_nuevo.to_csv(path, mode="a", header=False, index=False)
-            return len(df_nuevo)
-    else:
-        df_nuevo.to_csv(path, index=False)
+    df_nuevo = _normalizar(df_nuevo)
+    df_existente = (
+        _normalizar(pd.read_csv(path, dtype={"codigoestacion": str, "codigosensor": str}))
+        if path.exists()
+        else None
+    )
+
+    # Clave de deduplicación: timestamp + estación + sensor
+    key_cols = [
+        c
+        for c in ("fechaobservacion", "codigoestacion", "codigosensor")
+        if c in df_nuevo.columns and (df_existente is None or c in df_existente.columns)
+    ]
+    if not key_cols:
+        # Esquema inesperado: sin clave no se puede deduplicar; se agrega todo.
+        df_nuevo.to_csv(path, mode="a" if df_existente is not None else "w",
+                        header=df_existente is None, index=False)
         return len(df_nuevo)
+
+    if df_existente is None:
+        df_combinado = df_nuevo.drop_duplicates(subset=key_cols, keep="last")
+        n_antes = 0
+    else:
+        df_combinado = pd.concat([df_existente, df_nuevo], ignore_index=True)
+        df_combinado = df_combinado.drop_duplicates(subset=key_cols, keep="last")
+        n_antes = len(df_existente.drop_duplicates(subset=key_cols))
+    df_combinado.to_csv(path, index=False)
+    return len(df_combinado) - n_antes
 
 
 def _consultar_paginado(client, dataset_id: str, where: str, page_size: int = 5000) -> list:
@@ -259,8 +256,13 @@ def _asegurar_db_sembrada() -> None:
         _regenerar_bd_sqlite()
 
 
-# Ejecutar siembra perezosa al importar
-_asegurar_db_sembrada()
+def _ultima_lectura_csv(codigo: str) -> str:
+    """Última fechaobservacion del CSV crudo de la estación ('' si no hay CSV o datos)."""
+    path = DATA_RAW_DIR / f"historico_{codigo}.csv"
+    if not path.exists():
+        return ""
+    ult = pd.to_datetime(pd.read_csv(path, usecols=["fechaobservacion"])["fechaobservacion"], format="ISO8601", errors="coerce").max()
+    return ult.strftime("%Y-%m-%d %H:%M") if pd.notna(ult) else ""
 
 
 def _error(publico: str, detalle: str | None = None) -> dict[str, Any]:
@@ -324,17 +326,11 @@ def actualizar_ahora(estaciones: tuple[str, ...] = ESTACIONES_DEFAULT) -> dict[s
 
             if resultados:
                 df_nuevo = pd.DataFrame.from_records(resultados)
-                n_nuevas = _append_sin_duplicados(codigo, df_nuevo)
-                filas_nuevas_por_estacion[codigo] = n_nuevas
-                # Última fechaobservacion del CSV resultante
-                df_csv = pd.read_csv(DATA_RAW_DIR / f"historico_{codigo}.csv")
-                ult_ts = pd.to_datetime(df_csv["fechaobservacion"], errors="coerce").max()
-                ultima_lectura_por_estacion[codigo] = (
-                    ult_ts.strftime("%Y-%m-%d %H:%M") if pd.notna(ult_ts) else ""
-                )
+                filas_nuevas_por_estacion[codigo] = _append_sin_duplicados(codigo, df_nuevo)
             else:
                 filas_nuevas_por_estacion[codigo] = 0
-                ultima_lectura_por_estacion[codigo] = ""
+            # Última lectura guardada, haya o no filas nuevas (transparencia por estación)
+            ultima_lectura_por_estacion[codigo] = _ultima_lectura_csv(codigo)
 
         except Exception as e:
             return _error(f"Error consultando estación {codigo}", f"Error consultando estación {codigo}: {e}")
@@ -379,10 +375,12 @@ def actualizar_ahora(estaciones: tuple[str, ...] = ESTACIONES_DEFAULT) -> dict[s
     # 8. Obtener última lectura del log regenerado
     LOG_PATH = DATA_PROCESSED_DIR / "log_gateway_simulado.csv"
     ultima_lectura = ""
-    if LOG_PATH.exists():
-        df_log = pd.read_csv(LOG_PATH, parse_dates=["timestamp"])
+    try:
+        df_log = pd.read_csv(LOG_PATH, usecols=["timestamp"], parse_dates=["timestamp"])
         if not df_log.empty:
             ultima_lectura = df_log["timestamp"].max().strftime("%Y-%m-%d %H:%M")
+    except Exception as e:  # noqa: BLE001 — capturar todo es intencional
+        return _error("No se pudo leer el log actualizado", f"Error leyendo el log: {e}")
 
     return {
         "ok": True,
