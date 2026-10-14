@@ -537,11 +537,13 @@ Los tres regresores se guardaban como `rf_6h.joblib` (~61 725 KB), `rf_6h_delta.
 
 `simulate/08_clasificador_6h.py` entrena un clasificador binario (`target_6h > p90`). El dashboard (`dashboard/app.py`) y el gateway aplican a esa probabilidad la regla de lluvia seca (ver más abajo) y luego una escala ternaria, ambas definidas en `simulate/reglas_alerta.py`:
 
-| Estado | Rango de probabilidad | Color |
-|--------|----------------------|-------|
-| NORMAL | `proba < 0.30` | verde (#2ecc71) |
-| PRECAUCIÓN | `0.30 ≤ proba < 0.70` | amarillo (#f39c12) |
-| ALERTA | `proba ≥ 0.70` | rojo (#e74c3c) |
+| Estado | Rango de probabilidad | Color | "Estado de alerta" en la vista operador |
+|--------|----------------------|-------|-----------------------------------------|
+| NORMAL | `proba < 0.30` | verde (#2ecc71) | Sin alerta |
+| PRECAUCIÓN | `0.30 ≤ proba < 0.70` | amarillo/naranja (#f39c12) | Alerta naranja |
+| ALERTA | `proba ≥ 0.70` | rojo (#e74c3c) | Alerta roja |
+
+La etiqueta de la última columna está en `ESTADO_UI[estado]["etiqueta"]` (`dashboard/app.py`); internamente, el log y el código siguen usando NORMAL / PRECAUCIÓN / ALERTA.
 
 **Target binario (entrenamiento):**
 
@@ -806,11 +808,11 @@ ANCLAS = [
 
 ### Vista Operador (JAC)
 
-* **Registro de lecturas recientes:** tabla con las últimas 100 filas de `log_gateway_simulado.csv`, la más reciente arriba, con nombres legibles y 2 decimales.
+* **Registro de lecturas recientes:** tabla con las últimas 100 filas de `log_gateway_simulado.csv`, la más reciente arriba, con nombres legibles y 2 decimales. La columna "Estado de alerta" muestra Sin alerta / Alerta naranja / Alerta roja, cada una en su color.
 * **Comportamiento histórico de la cuenca:** gráfico dual-axis `P_basin` / `Q_scs_proxy` con marcadores de PRECAUCIÓN (amarillo) y ALERTA (rojo); selector de rango de fechas.
 * **Confiabilidad del sistema:** 4 métricas (recall/precisión para PRECAUCIÓN y ALERTA) calculadas sobre el split de test cronológico con el mismo criterio `proba >= umbral` y la misma regla de lluvia seca del semáforo; fuente `simulate/10_metricas_ternario.py`. No se recalculan en vivo.
 * **¿Qué factores pesan más en la alerta?:** feature importance con etiquetas legibles; expander "Detalle técnico" con info del modelo.
-* **Consultar un momento específico:** selector de fecha y hora; muestra estado, probabilidad y features con nombres legibles.
+* **Consultar un momento específico:** selector de fecha y hora; muestra el estado como pastilla de color (Sin alerta / Alerta naranja / Alerta roja), la probabilidad de riesgo y las features con nombres legibles. Si la fecha no tiene lecturas, lo avisa sin ocultar el simulador.
 * **Simular un escenario de lluvia:** 6 controles de lluvia (última hora y acumulados de 3 a 48 h), 3 presets, botón "Simular" y semáforo de resultado (ver §7.2).
 
 En la barra lateral están la guía del proyecto (estructura y preguntas frecuentes) y el botón **Actualizar ahora** (§8.4).
