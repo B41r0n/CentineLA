@@ -134,7 +134,7 @@ NOMBRES_LEGIBLES = {
     "roll_max_6h": "Pico de lluvia en 6 h",
     "hora_dia": "Hora del día",
     "mes": "Mes",
-    "proba_alerta": "Probabilidad de creciente",
+    "proba_alerta": "Probabilidad de riesgo",
     "estado": "Estado de alerta",
 }
 
@@ -418,7 +418,7 @@ def _hero_html(estado: str, proba: float, ultima_ts_str: str) -> str:
   <div class="action">{ui['accion']}</div>
   <div style="margin-top:14px">
     <div class="cl-stat" style="text-align:center">
-      <div class="k">Probabilidad de creciente</div>
+      <div class="k">Probabilidad de riesgo (6 h)</div>
       <div class="v" style="color:{color_p}">{proba:.1%}</div>
     </div>
   </div>
@@ -439,7 +439,7 @@ def _estado_semaforo_html(estado: str, proba: float) -> str:
     return _compacto(f"""
 <div class="cl-card" style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px">
   <div>{_pill(estado)}</div>
-  <div style="font-size:14px;color:var(--cl-muted)">Probabilidad de creciente</div>
+  <div style="font-size:14px;color:var(--cl-muted)">Probabilidad de riesgo (6 h)</div>
   <div class="cl-stat" style="margin:4px 0"><div class="v" style="color:{color_p}">{proba:.1%}</div></div>
   {_gauge_html(proba)}
   <div style="font-size:11px;color:var(--cl-muted)">
@@ -927,7 +927,7 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
         with col_a:
             st.markdown(f"**Fecha y hora:** `{fila['timestamp']}`")
             st.markdown(f"**Estado de alerta:** `{fila['estado']}`")
-            st.markdown(f"**Probabilidad de creciente:** `{fila['proba_alerta']:.4f}`")
+            st.markdown(f"**Probabilidad de riesgo:** `{fila['proba_alerta']:.4f}`")
 
         with col_b:
             cols_mostrar = [c for c in ["P_basin", "Q_actual", "Q_lag_1h", "roll_sum_24h", "hora_dia", "mes"]
@@ -1078,7 +1078,7 @@ _GUIA_PIPELINE = [
 _GUIA_VISTAS = [
     {
         "titulo": "Vista pública",
-        "items": ["Semáforo de riesgo", "Probabilidad de creciente", "Lluvia acumulada", "Mapa de la quebrada", "Calendario de alertas de 90 días"],
+        "items": ["Semáforo de riesgo", "Probabilidad de riesgo a 6 horas", "Lluvia acumulada", "Mapa de la quebrada", "Calendario de alertas de 90 días"],
     },
     {
         "titulo": "Vista operador (JAC)",
@@ -1661,7 +1661,9 @@ def main() -> None:
             st.write(
                 "Toma datos de lluvia de estaciones del IDEAM, estima cuánta agua "
                 "escurre hacia la quebrada y un modelo de aprendizaje automático calcula "
-                "la probabilidad de creciente en las próximas 6 horas."
+                "la probabilidad de riesgo en las próximas 6 horas: que la lluvia "
+                "acumulada llegue al punto en que el terreno ya no la absorbe y el agua "
+                "escurre hacia la quebrada. No mide el nivel del agua."
             )
         with col3:
             st.markdown("**Qué entrega**")
