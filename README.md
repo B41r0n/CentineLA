@@ -215,13 +215,13 @@ piso_dias = 7   # dentro de descarga_rango_recursiva
 
 **Estaciones reales descargadas en este repo:**
 
-| Código | Nombre | Sensor canónico | Sensor QA | Rango del CSV (al 2026-10-07) |
+| Código | Nombre | Sensor canónico | Sensor QA | Rango del CSV (al 2026-10-12) |
 |--------|--------|-----------------|-----------|-------------------------------|
 | `0027015290` | Pajarito | 240 | — | 2016-12-31 → 2020-03-28 (suspendida) |
-| `0027015310` | Metromedellín | 240 | — | 2016-12-31 → 2026-10-07 |
-| `0027015330` | Olaya Herrera | 240 | 257 | 2016-12-31 → 2026-10-07 |
+| `0027015310` | Metromedellín | 240 | — | 2016-12-31 → 2026-10-12 |
+| `0027015330` | Olaya Herrera | 240 | 257 (desde 2024-03-11) | 2016-12-31 → 2026-10-12 |
 
-La descarga histórica original llegó hasta 2026-07-09; desde ahí las dos estaciones activas se extienden con **Actualizar ahora** (§8.4). Estos metadatos están codificados en `simulate/04_scs_cn_proxy.py`, no solo en `02_pull_historico.py`.
+La descarga histórica original llegó hasta 2026-07-09; desde ahí las dos estaciones activas se extienden con **Actualizar ahora** (§8.4). El 13-oct-2026 se volvió a descargar completo el histórico de Metromedellín y Olaya Herrera para reparar el CSV local de Olaya, al que una versión anterior de la actualización en vivo (antes del commit `b10cd19`) le había quitado lecturas del sensor 240 cuando coincidían con el 257 (ver §5.2). Estos metadatos están codificados en `simulate/04_scs_cn_proxy.py`, no solo en `02_pull_historico.py`.
 
 ---
 
@@ -322,7 +322,7 @@ STATION_META = {
 
 **Resultado real del proxy (última corrida):**
 
-* `proxy_q_la_honda.csv`: 85 618 filas horarias, desde `2016-12-31 14:00:00` hasta `2026-10-07 23:00:00` (la corrida del 27-jul-2026 tenía 83 458 filas hasta `2026-07-09`; el archivo crece con cada actualización en vivo).
+* `proxy_q_la_honda.csv`: 85 738 filas horarias, desde `2016-12-31 14:00:00` hasta `2026-10-12 23:00:00` (la corrida del 27-jul-2026 tenía 83 458 filas hasta `2026-07-09`; el archivo crece con cada actualización en vivo).
 * Columnas: `timestamp`, `P_basin`, `P_acc_24h`, `Q_scs_proxy`, `n_estaciones_disponibles`.
 * Con CN=81.1: `S ≈ 59.20`, `Ia ≈ 11.84`.
 
@@ -446,7 +446,7 @@ corte = int(n_total * 0.82)
 | Test 6 h | 7 753 |
 | `% target_6h == 0` | 91.86 % |
 
-> **Vigente al corte 2026-09-30 23:00:** dataset 6 h = 44,371 filas (train 35,316 / test 9,055).
+> **Vigente al corte 2026-09-30 23:00:** dataset 6 h = 44,372 filas (train 35,316 / test 9,056). El archivo completo, con las horas posteriores al corte, tiene 44,641 filas hasta 2026-10-12 17:00.
 
 **Decisiones de diseño:**
 
@@ -566,9 +566,9 @@ RandomForestClassifier(
 
 **Entrenamiento (datos vigentes, corte de evaluación 2026-09-30):**
 
-* `n train = 35 316`, `n test = 9 055`.
+* `n train = 35 316`, `n test = 9 056`.
 * Positivos train: 3 138 (8.89 %).
-* Positivos test: 417 (4.61 %).
+* Positivos test: 417 (4.60 %).
 
 > La corrida original del 27-jul-2026 tenía `n test = 7 753` con 366 positivos (4.72 %); el reporte y el barrido de abajo son de esa corrida.
 
@@ -602,19 +602,19 @@ Criterio `proba >= umbral`, el mismo que aplican el semáforo del dashboard y el
 
 | Umbral | Recall    | Precisión | Rol en el sistema                |
 |--------|-----------|-----------|----------------------------------|
-| 0.20   | 0.752998  | 0.471471  | referencia binaria anterior      |
-| 0.30   | 0.717026  | 0.578337  | PRECAUCIÓN (amarillo) o más      |
-| 0.70   | 0.551559  | 0.874525  | ALERTA (rojo)                    |
+| 0.20   | 0.752998  | 0.470060  | referencia binaria anterior      |
+| 0.30   | 0.717026  | 0.576108  | PRECAUCIÓN (amarillo) o más      |
+| 0.70   | 0.551559  | 0.867925  | ALERTA (rojo)                    |
 
-**Modelo solo (probabilidad cruda, control):** 0.20 → 0.755396 / 0.406977 · 0.30 → 0.717026 / 0.493399 · 0.70 → 0.551559 / 0.861423.
+**Modelo solo (probabilidad cruda, control):** 0.20 → 0.755396 / 0.405928 · 0.30 → 0.717026 / 0.491776 · 0.70 → 0.551559 / 0.855019.
 
-**Parámetros de la corrida:** Train 35,316 filas (hasta 2025-07-06 16:00), Test 9,055 filas (2025-07-06 17:00 → 2026-09-30), 417 positivos en test (label_6h=1). Reproducible con `python simulate/10_metricas_ternario.py`, que imprime las dos tablas.
+**Parámetros de la corrida:** Train 35,316 filas (hasta 2025-07-06 16:00), Test 9,056 filas (2025-07-06 17:00 → 2026-09-30), 417 positivos en test (label_6h=1). Reproducible con `python simulate/10_metricas_ternario.py`, que imprime las dos tablas.
 
-> Las métricas se calculan sobre el test hasta 2026-09-30; el dataset se extiende con las actualizaciones en vivo, pero la evaluación queda fija. Como cada actualización vuelve a correr el ETL sobre todo el proxy, los decimales pueden moverse ligeramente si cambian datos dentro de la ventana de prueba (por ejemplo, lecturas que el IDEAM publica o corrige tarde): la versión del 03-oct-2026, con criterio `>` y sin la regla, daba 0.497496 de precisión en 0.30 y hoy, en esas mismas condiciones, da 0.496667.
+> Las métricas se calculan sobre el test hasta 2026-09-30; el dataset se extiende con las actualizaciones en vivo, pero la evaluación queda fija. Como cada actualización vuelve a correr el ETL sobre todo el proxy, los decimales pueden moverse ligeramente si cambian datos dentro de la ventana de prueba (por ejemplo, lecturas que el IDEAM publica o corrige tarde): la versión del 03-oct-2026, con criterio `>` y sin la regla, daba 0.497496 de precisión en 0.30 y el 13-oct-2026, en esas mismas condiciones, 0.496667. Ese mismo día se repararon las lecturas de Olaya Herrera perdidas por la deduplicación vieja: cambiaron 16 horas del proxy (30-sep 20:00 → 7-oct 17:00), la prueba ganó una fila (9,055 → 9,056) y la precisión del sistema pasó de 57.8 % a 57.6 % (amarillo) y de 87.5 % a 86.8 % (rojo); los recall no cambiaron.
 
 > **Reentrenar no reproduce el modelo exacto.** `10` evalúa el modelo guardado (`clf_6h.joblib`, entrenado el 01-oct-2026), por eso sus cifras se reproducen. Si hoy se corre `08_clasificador_6h.py`, el modelo resultante no es idéntico (por ejemplo, recall 0.722 en 0.30), porque el dataset cambió un poco desde entonces. Reentrenar implica volver a correr `09` y `10` y actualizar las cifras del dashboard y de esta documentación.
 
-**Lectura:** el amarillo avisa en más horas de riesgo (72 %) y algo más de la mitad de sus avisos (58 %) coinciden con una; el rojo detecta menos (55 %) pero 87.5 % de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
+**Lectura:** el amarillo avisa en más horas de riesgo (72 %) y algo más de la mitad de sus avisos (58 %) coinciden con una; el rojo detecta menos (55 %) pero 86.8 % de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
 
 ### Regla de lluvia seca
 
@@ -622,9 +622,9 @@ Si en las últimas 24 h no llovió nada (`roll_sum_24h == 0`), la probabilidad s
 
 * Sin lluvia previa, para que haya escorrentía a 6 h tendrían que caer unos 12 mm nuevos (la abstracción inicial con CN 81.1). Con las features disponibles, el modelo no tiene cómo anticiparlo.
 * El clasificador, apoyado en `hora_dia` y `mes`, a veces marcaba PRECAUCIÓN o ALERTA en esas horas: 89 avisos en la ventana de prueba, **ninguno acertado**; en todo el histórico, 61 ALERTA y 172 PRECAUCIÓN.
-* Con la regla, en los umbrales del sistema (0.30 y 0.70) no se pierde ninguna detección y la precisión sube de 49.3 % a 57.8 % (amarillo) y de 86.1 % a 87.5 % (rojo). En la referencia binaria 0.20 se pierde 1 de 417.
+* Con la regla, en los umbrales del sistema (0.30 y 0.70) no se pierde ninguna detección y la precisión sube de 49.2 % a 57.6 % (amarillo) y de 85.5 % a 86.8 % (rojo). En la referencia binaria 0.20 se pierde 1 de 417.
 * El límite es 0 mm por criterio físico, no ajustado mirando el test (con 1 mm el resultado en test sería un poco mejor, pero sería elegir el umbral con los mismos datos con que se evalúa).
-* Se probaron reentrenamientos (sin `hora_dia`/`mes`, con `min_samples_leaf`, con codificación cíclica): o seguían dando avisos en horas secas o cambiaban el equilibrio hacia más falsas alarmas (precisión del rojo entre 66 % y 79 %, contra 86 % del modelo actual). Por eso se optó por la regla y el modelo no se reentrenó.
+* Se probaron reentrenamientos (sin `hora_dia`/`mes`, con `min_samples_leaf`, con codificación cíclica): o seguían dando avisos en horas secas o cambiaban el equilibrio hacia más falsas alarmas (precisión del rojo entre 66 % y 79 %, contra 85.5 % del modelo actual). Por eso se optó por la regla y el modelo no se reentrenó.
 
 **Observación importante sobre el recomendador automático:**
 
@@ -705,16 +705,16 @@ def calcular_features_streaming(base_stream):
         }
 ```
 
-### Resultado de la última corrida (13-oct-2026, datos hasta 2026-10-07)
+### Resultado de la última corrida (13-oct-2026, datos hasta 2026-10-12)
 
 ```text
-Proxy cargado: ... | filas=85618
-Dataset batch cargado: ... | filas=44514
+Proxy cargado: ... | filas=85738
+Dataset batch cargado: ... | filas=44641
 VALIDACION OK: 500 timestamps aleatorios comparados, sin diferencias > 1e-06.
-Filas inferidas (sin NaN en features): 45346
-Total NORMAL: 41212
-Total PRECAUCIÓN: 729
-Total ALERTA: 3405
+Filas inferidas (sin NaN en features): 45472
+Total NORMAL: 41262
+Total PRECAUCIÓN: 753
+Total ALERTA: 3457
 Avisos del modelo anulados por la regla de lluvia seca: 233
 ```
 
@@ -733,7 +733,7 @@ La corrida completa tarda ~15 s en un equipo de escritorio (el botón **Actualiz
 | 2023 | 481 | 6 | 68 |
 | 2024 | 982 | 7 | 113 |
 | 2025 | 6 677 | 131 | 311 |
-| 2026 | 5 246 | 155 | 210 |
+| 2026 | 5 296 | 179 | 262 |
 
 Los años con pocas horas (2020, 2023, 2024) son los de menor disponibilidad de estaciones: solo se infiere cuando hay al menos 2 estaciones y las 18 features completas.
 
@@ -774,9 +774,9 @@ UMBRAL_PRECAUCION = 0.30          # de simulate/reglas_alerta.py, igual que clas
 UMBRAL_ALERTA = 0.70
 PROBA_MAX_SIN_LLUVIA = 0.0066     # regla de lluvia seca
 RECALL_PRECAUCION = 0.717026      # métricas del sistema, proba >= umbral (10_metricas_ternario.py)
-PRECISION_PRECAUCION = 0.578337
+PRECISION_PRECAUCION = 0.576108
 RECALL_ALERTA = 0.551559
-PRECISION_ALERTA = 0.874525
+PRECISION_ALERTA = 0.867925
 CN = 81.1                         # importado de simulate/cuenca_la_honda_params.py (simulador)
 ZONA_HORARIA = "America/Bogota"   # hora y mes del simulador
 
@@ -802,7 +802,7 @@ ANCLAS = [
 * **Estado actual de la quebrada:** semáforo con probabilidad y línea de acción según estado (NORMAL / PRECAUCIÓN / ALERTA).
 * **Lluvia acumulada:** tarjetas con últimas 24 h, 7 días y 30 días (promedio de las estaciones con dato).
 * **Mapa de la quebrada y sus puntos de monitoreo:** 5 nodos interpolados por longitud de arco entre las 3 anclas (Folium interactivo / Matplotlib estático).
-* **Historial de los últimos 90 días:** cuadrícula día a día; verde = solo NORMAL, amarillo = hubo PRECAUCIÓN, rojo = hubo ALERTA, **gris = sin lecturas ese día** (menos de 2 estaciones reportando; no significa "sin riesgo"). Al 2026-10-07 hay 22 días grises (25-jul → 20-ago-2026).
+* **Historial de los últimos 90 días:** cuadrícula día a día; verde = solo NORMAL, amarillo = hubo PRECAUCIÓN, rojo = hubo ALERTA, **gris = sin lecturas ese día** (menos de 2 estaciones reportando; no significa "sin riesgo"). Al 2026-10-12 hay 22 días grises (25-jul → 20-ago-2026).
 
 ### Vista Operador (JAC)
 
@@ -1032,7 +1032,7 @@ Para uso bajo otros términos (por ejemplo, comercial): [b41r0nn@gmail.com](mail
 | CN por tramo alto/medio/bajo | 70 / 92 / 85 | `simulate/cuenca_la_honda_params.py` |
 | Mínimo estaciones | 2 | `LOW_QUALITY_MIN_ESTACIONES = 2` en `06` y `09` |
 | Horizontes generados | 6, 12, 24 h | `HORIZONTES = (6, 12, 24)` en `06` |
-| Split train/test | ≈80 / 20 cronológico (79.6 / 20.4; corte fijo 2025-07-06 16:00; train 35,316 filas, test 9,055 filas hasta 2026-09-30; regla inicial 82/18) | `06_etl_features.py` |
+| Split train/test | ≈80 / 20 cronológico (79.6 / 20.4; corte fijo 2025-07-06 16:00; train 35,316 filas, test 9,056 filas hasta 2026-09-30; regla inicial 82/18) | `06_etl_features.py` |
 | Estaciones usadas | 0027015290, 0027015310, 0027015330 | `04_scs_cn_proxy.py` |
 | Sensor canónico | 240 | `04_scs_cn_proxy.py` |
 | Sensor QA Olaya | 257 | `04_scs_cn_proxy.py` |
@@ -1041,10 +1041,10 @@ Para uso bajo otros términos (por ejemplo, comercial): [b41r0nn@gmail.com](mail
 | Umbral ALERTA | 0.70 | `dashboard/app.py` (`UMBRAL_ALERTA`) |
 | Criterio de umbral | `proba >= umbral` | `simulate/reglas_alerta.py` (lo usan dashboard, `09` y `10`) |
 | Regla de lluvia seca | 24 h = 0 mm → proba ≤ 0.0066 | `simulate/reglas_alerta.py` |
-| Recall / precisión del modelo solo (umbral ≥0.20, control) | 0.755396 / 0.406977 | `simulate/10_metricas_ternario.py` |
+| Recall / precisión del modelo solo (umbral ≥0.20, control) | 0.755396 / 0.405928 | `simulate/10_metricas_ternario.py` |
 | Recall PRECAUCIÓN (umbral ≥0.30, sistema) | 0.717026 (~71.7 %) | `simulate/10_metricas_ternario.py` |
-| Precisión PRECAUCIÓN (umbral ≥0.30, sistema) | 0.578337 (~57.8 %) | `simulate/10_metricas_ternario.py` |
+| Precisión PRECAUCIÓN (umbral ≥0.30, sistema) | 0.576108 (~57.6 %) | `simulate/10_metricas_ternario.py` |
 | Recall ALERTA (umbral ≥0.70, sistema) | 0.551559 (~55.2 %) | `simulate/10_metricas_ternario.py` |
-| Precisión ALERTA (umbral ≥0.70, sistema) | 0.874525 (~87.5 %) | `simulate/10_metricas_ternario.py` |
+| Precisión ALERTA (umbral ≥0.70, sistema) | 0.867925 (~86.8 %) | `simulate/10_metricas_ternario.py` |
 | Gateway validación | 500 timestamps, ε=1e-6 | `09_gateway_simulado.py` |
-| Estados del log (NORMAL / PRECAUCIÓN / ALERTA) | 41 212 / 729 / 3 405 (45 346 horas, datos al 2026-10-07) | `09_gateway_simulado.py` |
+| Estados del log (NORMAL / PRECAUCIÓN / ALERTA) | 41 262 / 753 / 3 457 (45 472 horas, datos al 2026-10-12) | `09_gateway_simulado.py` |

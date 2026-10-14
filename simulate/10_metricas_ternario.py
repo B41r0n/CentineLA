@@ -14,7 +14,8 @@ para umbrales 0.20, 0.30 y 0.70, en dos versiones:
 Criterio: un umbral se considera activado si proba >= umbral, igual que el semáforo
 del dashboard (clasificar_estado) y el gateway simulado.
 
-Control: el resultado en 0.20 debe reproducir ≈0.755 / ≈0.407 (modelo del 01-oct-2026).
+Control: el modelo en 0.20 debe reproducir ≈0.755 / ≈0.406 (modelo del 01-oct-2026,
+datos reparados el 13-oct-2026).
 """
 
 from pathlib import Path
@@ -121,10 +122,10 @@ def main():
     rec_20, prec_20 = resultados[0.20]
     print("\n=== Control (umbral 0.20) ===")
     print(f"Recall obtenido:    {rec_20:.6f}  (esperado ~0.755396)")
-    print(f"Precision obtenida: {prec_20:.6f}  (esperado ~0.406977)")
+    print(f"Precision obtenida: {prec_20:.6f}  (esperado ~0.405928)")
 
     diff_rec = abs(rec_20 - 0.755396)
-    diff_prec = abs(prec_20 - 0.406977)
+    diff_prec = abs(prec_20 - 0.405928)
     if diff_rec > 0.01 or diff_prec > 0.01:
         print("\nADVERTENCIA: Diferencia > 0.01 respecto a la corrida de referencia.")
         print(f"   Delta recall = {diff_rec:.6f}, Delta precision = {diff_prec:.6f}")
