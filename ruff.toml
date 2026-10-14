@@ -1,0 +1,31 @@
+# Lint del proyecto: python -m ruff check .
+target-version = "py312"
+line-length = 120
+extend-exclude = ["venv", ".venv"]
+
+[lint]
+select = [
+    "E4", "E7", "E9", "F",  # errores de Python y pyflakes (nombres sin definir, imports sin uso…)
+    "I",                    # orden de imports
+    "B",                    # bugbear: errores frecuentes (p. ej. zip sin strict)
+    "BLE",                  # capturas genéricas de Exception
+    "S110",                 # try / except / pass silencioso
+    "SIM",                  # simplificaciones
+    "RUF",                  # reglas propias de ruff
+    "PLW1510",              # subprocess.run sin check explícito
+    "PLR1722",              # exit() en vez de sys.exit()
+]
+ignore = [
+    "RUF001", "RUF002", "RUF003",  # textos en español con "–", "×", "≥"… son intencionales
+]
+
+[lint.per-file-ignores]
+# Barreras de resiliencia intencionales: el tablero no debe caerse, la descarga histórica
+# reintenta por rangos, el ETL tolera un split previo ilegible y la actualización en vivo
+# devuelve mensajes cortos sin trazas.
+"dashboard/app.py" = ["BLE001"]
+"simulate/11_actualizar_ahora.py" = ["BLE001"]
+"scripts/02_pull_historico.py" = ["BLE001"]
+"simulate/06_etl_features.py" = ["BLE001"]
+# El script de verificación ajusta sys.path y el backend de matplotlib antes de importar la app.
+"dashboard/_check_fixes.py" = ["E402"]

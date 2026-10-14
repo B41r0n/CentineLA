@@ -34,9 +34,9 @@ def test_calendario_dias_sin_lecturas_en_gris(app):
     ts = pd.to_datetime(["2026-10-01 10:00", "2026-10-03 10:00", "2026-10-03 11:00"])
     log = pd.DataFrame({"timestamp": ts, "estado": ["NORMAL", "ALERTA", "NORMAL"]})
     html = app._calendario_html(log, n_dias=3)
-    assert '2026-10-01 · normal"' in html
-    assert '2026-10-02 · sin datos"' in html
-    assert '2026-10-03 · alerta"' in html
+    assert '2026-10-01 · Sin alerta"' in html
+    assert '2026-10-02 · Sin datos"' in html
+    assert '2026-10-03 · Alerta roja"' in html
 
 
 def test_simulador_acumulados_coherentes(app):
@@ -93,7 +93,7 @@ def test_fecha_sin_lecturas_no_oculta_el_simulador():
 
 def test_etiquetas_de_estado(app):
     etiquetas = {e: ui["etiqueta"] for e, ui in app.ESTADO_UI.items()}
-    assert etiquetas == {"NORMAL": "Sin alerta", "PRECAUCIÓN": "Alerta naranja", "ALERTA": "Alerta roja"}
+    assert etiquetas == {"NORMAL": "Sin alerta", "PRECAUCIÓN": "Precaución", "ALERTA": "Alerta roja"}
     assert "Alerta roja" in app._pill("ALERTA", "Alerta roja")
     assert app.ESTADO_UI["ALERTA"]["pill_txt"] in app._pill("ALERTA", "Alerta roja")
 

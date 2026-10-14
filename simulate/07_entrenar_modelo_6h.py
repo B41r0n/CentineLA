@@ -18,15 +18,14 @@ Uso:
     python 07_entrenar_modelo_6h.py
 """
 
-from pathlib import Path
 import os
+from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PROCESSED_DIR = BASE_DIR / "data" / "processed"

@@ -8,8 +8,8 @@ Uso:
     streamlit run dashboard/app.py
 """
 
-import importlib.util
 import base64
+import importlib.util
 import io
 import math
 import os
@@ -84,28 +84,36 @@ ajustar_proba = _reglas.ajustar_proba
 ZONA_HORARIA = "America/Bogota"
 
 # ── tokens de diseño por estado (única fuente) ──
+# Código de colores del semáforo: verde / amarillo / rojo. "etiqueta" es lo que ve el
+# usuario; las claves (NORMAL / PRECAUCIÓN / ALERTA) son los nombres internos del log.
 ESTADO_UI = {
     "NORMAL": {
         "color": "#2ecc71",
         "pill_txt": "#34d27b",
         "soft": "rgba(46,204,113,.14)",
-        "banner": "NORMAL",
+        "zona": "rgba(46,204,113,.35)",
+        "calendario": "#1f6f4a",  # verde apagado para que resalten los días con aviso
+        "banner": "SIN ALERTA",
         "etiqueta": "Sin alerta",
         "accion": "No hay señales de alerta. Monitoreo activo.",
     },
     "PRECAUCIÓN": {
-        "color": "#f39c12",
-        "pill_txt": "#f5b041",
-        "soft": "rgba(243,156,18,.14)",
+        "color": "#f1c40f",
+        "pill_txt": "#f4d03f",
+        "soft": "rgba(241,196,15,.14)",
+        "zona": "rgba(241,196,15,.35)",
+        "calendario": "#f1c40f",
         "banner": "PRECAUCIÓN — RIESGO MODERADO",
-        "etiqueta": "Alerta naranja",
+        "etiqueta": "Precaución",
         "accion": "La lluvia acumulada podría generar riesgo en las próximas 6 horas. Mantenerse atentos.",
     },
     "ALERTA": {
         "color": "#e74c3c",
         "pill_txt": "#ff6b5e",
         "soft": "rgba(231,76,60,.16)",
-        "banner": "ALERTA — RIESGO EN LAS PRÓXIMAS 6 HORAS",
+        "zona": "rgba(231,76,60,.35)",
+        "calendario": "#e74c3c",
+        "banner": "ALERTA ROJA — RIESGO EN LAS PRÓXIMAS 6 HORAS",
         "etiqueta": "Alerta roja",
         "accion": "Riesgo de creciente en las próximas 6 horas. Activar protocolo de la JAC.",
     },
@@ -229,7 +237,7 @@ def _fecha_es(ts, formato: str) -> str:
 
 def _compacto(html: str) -> str:
     """Elimina las líneas en blanco de un bloque HTML."""
-    return "\n".join(l for l in html.split("\n") if l.strip())
+    return "\n".join(linea for linea in html.split("\n") if linea.strip())
 
 
 # ── carga de datos con caché ──────────────────────────────────────────────────
@@ -305,9 +313,9 @@ def _mapa_folium(anclas: list[dict], nodos: list[dict], estado: str) -> None:
 
 
 def _mapa_estatico(anclas: list[dict], nodos: list[dict], estado: str) -> None:
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
     import matplotlib.lines as mlines
+    import matplotlib.patches as mpatches
+    import matplotlib.pyplot as plt
 
     lats_linea = [a["lat"] for a in anclas]
     lons_linea = [a["lon"] for a in anclas]
@@ -368,7 +376,7 @@ def _mapa_estatico(anclas: list[dict], nodos: list[dict], estado: str) -> None:
     ax.grid(alpha=0.1, color="#232830")
 
     # Leyenda
-    handle_estado = mpatches.Patch(color=color, label=estado)
+    handle_estado = mpatches.Patch(color=color, label=ui["etiqueta"])
     handle_ancla = mlines.Line2D(
         [], [], marker="o", color="w",
         markerfacecolor="white", markeredgecolor="#3498db",
@@ -407,24 +415,21 @@ def mostrar_mapa(anclas: list[dict], nodos: list[dict], estado: str) -> None:
 # ── helpers de Vista Pública ──────────────────────────────────────────────────
 
 def _color_proba(proba: float) -> str:
-    if proba >= UMBRAL_ALERTA:
-        return "#e74c3c"
-    if proba >= UMBRAL_PRECAUCION:
-        return "#f39c12"
-    return "#2ecc71"
+    return ESTADO_UI[clasificar_estado(proba)]["color"]
 
 
 def _gauge_html(proba: float) -> str:
     """Gauge con tres zonas (verde/amarillo/rojo) y marcador."""
     p = max(0.0, min(1.0, proba))
+    z_verde, z_amarilla, z_roja = (ESTADO_UI[e]["zona"] for e in ("NORMAL", "PRECAUCIÓN", "ALERTA"))
     w_green = UMBRAL_PRECAUCION * 100
     w_yellow = (UMBRAL_ALERTA - UMBRAL_PRECAUCION) * 100
     w_red = (1.0 - UMBRAL_ALERTA) * 100
     return f"""
 <div class="cl-gauge">
-  <div style="width:{w_green}%;background:rgba(46,204,113,.35);border-radius:999px 0 0 999px;"></div>
-  <div style="width:{w_yellow}%;background:rgba(243,156,18,.35);"></div>
-  <div style="width:{w_red}%;background:rgba(231,76,60,.35);border-radius:0 999px 999px 0;"></div>
+  <div style="width:{w_green}%;background:{z_verde};border-radius:999px 0 0 999px;"></div>
+  <div style="width:{w_yellow}%;background:{z_amarilla};"></div>
+  <div style="width:{w_red}%;background:{z_roja};border-radius:0 999px 999px 0;"></div>
   <div class="mk" style="left:{p*100}%"></div>
 </div>
 <div class="cl-gauge-lbl">
@@ -499,8 +504,9 @@ def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
     # Estado máximo por día: 0=NORMAL, 1=PRECAUCIÓN, 2=ALERTA.
     # -1 = sin lecturas ese día (p. ej. menos de 2 estaciones): no es "sin riesgo".
     estado_map = {"NORMAL": 0, "PRECAUCIÓN": 1, "ALERTA": 2}
-    colores = {-1: "#3a3f47", 0: "#1f6f4a", 1: "#f39c12", 2: "#e74c3c"}  # verde apagado para NORMAL
-    etiquetas = {-1: "sin datos", 0: "normal", 1: "precaución", 2: "alerta"}
+    estados = {0: "NORMAL", 1: "PRECAUCIÓN", 2: "ALERTA"}
+    colores = {-1: "#3a3f47", **{n: ESTADO_UI[e]["calendario"] for n, e in estados.items()}}
+    etiquetas = {-1: "Sin datos", **{n: ESTADO_UI[e]["etiqueta"] for n, e in estados.items()}}
     dia_estado = (
         log.groupby(log["timestamp"].dt.date)["estado"]
         .apply(lambda s: max((estado_map.get(e, 0) for e in s), default=0))
@@ -523,28 +529,13 @@ def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
         + "".join(celdas)
         + "</div>"
     )
-    cuadro_n = (
-        '<span style="display:inline-block;width:12px;height:12px;'
-        'background:#1f6f4a;border-radius:2px;vertical-align:middle"></span>'
-    )
-    cuadro_p = (
-        '<span style="display:inline-block;width:12px;height:12px;'
-        'background:#f39c12;border-radius:2px;vertical-align:middle"></span>'
-    )
-    cuadro_a = (
-        '<span style="display:inline-block;width:12px;height:12px;'
-        'background:#e74c3c;border-radius:2px;vertical-align:middle"></span>'
-    )
-    cuadro_s = (
-        '<span style="display:inline-block;width:12px;height:12px;'
-        'background:#3a3f47;border-radius:2px;vertical-align:middle"></span>'
-    )
     leyenda = (
         '<div class="cl-leyenda" style="display:flex;gap:16px;font-size:12px;color:var(--cl-muted)">'
-        + cuadro_n + " Normal&nbsp;&nbsp;"
-        + cuadro_p + " Precaución&nbsp;&nbsp;"
-        + cuadro_a + " Alerta&nbsp;&nbsp;"
-        + cuadro_s + " Sin datos"
+        + "&nbsp;&nbsp;".join(
+            '<span><span style="display:inline-block;width:12px;height:12px;'
+            f'background:{colores[n]};border-radius:2px;vertical-align:middle"></span> {etiquetas[n]}</span>'
+            for n in (0, 1, 2, -1)
+        )
         + "</div>"
     )
     return grid_html + leyenda
@@ -611,53 +602,51 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
         ("Probabilidad", f"{proba_actual:.1%}"),
         ("Lluvia 24 h", f"{ult_24h:.1f} mm"),
         ("Última lectura", ultima_ts_str),
-        ("Días con alerta (30 d)", str(dias_alerta_30d)),
+        ("Días con alerta roja (30 d)", str(dias_alerta_30d)),
     ]
     st.markdown(_chips_html(chips, estado=estado_actual), unsafe_allow_html=True)
 
     # 2. Dos columnas: Hero (izq) + Últimos días con alertas (der)
     col_izq, col_der = st.columns([1, 1])
 
-    with col_izq:
-        with st.container(border=True, key="card-hero"):
-            st.markdown(_hero_html(estado_actual, proba_actual, ultima_ts_str), unsafe_allow_html=True)
+    with col_izq, st.container(border=True, key="card-hero"):
+        st.markdown(_hero_html(estado_actual, proba_actual, ultima_ts_str), unsafe_allow_html=True)
 
-    with col_der:
-        with st.container(border=True, key="card-alertas"):
-            st.subheader("Últimos días con alertas")
-            # Agrupar por fecha, tomar días con estado != NORMAL
-            estado_map = {"NORMAL": 0, "PRECAUCIÓN": 1, "ALERTA": 2}
-            dia_estado = (
-                log.groupby(log["timestamp"].dt.date)["estado"]
-                .apply(lambda s: max((estado_map.get(e, 0) for e in s), default=0))
-            )
-            dias_con_evento = [
-                (d, e) for d, e in dia_estado.items() if e != 0
-            ]
-            dias_con_evento.sort(reverse=True)
-            if dias_con_evento:
-                items_html = []
-                for d, nivel in dias_con_evento[:6]:
-                    est = {0: "NORMAL", 1: "PRECAUCIÓN", 2: "ALERTA"}[nivel]
-                    ui = ESTADO_UI[est]
-                    # probabilidad máxima del día
-                    mask_dia = log["timestamp"].dt.date == d
-                    proba_max = float(log[mask_dia]["proba_alerta"].max())
-                    fecha_str = _fecha_es(d, "%d-%b")
-                    items_html.append(f"""
+    with col_der, st.container(border=True, key="card-alertas"):
+        st.subheader("Últimos días con alertas")
+        # Agrupar por fecha, tomar días con estado != NORMAL
+        estado_map = {"NORMAL": 0, "PRECAUCIÓN": 1, "ALERTA": 2}
+        dia_estado = (
+            log.groupby(log["timestamp"].dt.date)["estado"]
+            .apply(lambda s: max((estado_map.get(e, 0) for e in s), default=0))
+        )
+        dias_con_evento = [
+            (d, e) for d, e in dia_estado.items() if e != 0
+        ]
+        dias_con_evento.sort(reverse=True)
+        if dias_con_evento:
+            items_html = []
+            for d, nivel in dias_con_evento[:6]:
+                est = {0: "NORMAL", 1: "PRECAUCIÓN", 2: "ALERTA"}[nivel]
+                ui = ESTADO_UI[est]
+                # probabilidad máxima del día
+                mask_dia = log["timestamp"].dt.date == d
+                proba_max = float(log[mask_dia]["proba_alerta"].max())
+                fecha_str = _fecha_es(d, "%d-%b")
+                items_html.append(f"""
 <div class="cl-item">
   <span style="font-size:12px;color:var(--cl-muted)">{fecha_str}</span>
   <span>{_pill(est)}</span>
   <div class="cl-bar"><span style="width:{proba_max*100:.0f}%;background:{ui['color']}"></span></div>
   <span style="font-size:13px;font-weight:600;color:{ui['pill_txt']}">{proba_max:.0%}</span>
 </div>""")
-                st.markdown("".join(items_html), unsafe_allow_html=True)
-            else:
-                st.write("Sin precauciones ni alertas en el periodo.")
-            st.caption(
-                "Días recientes en que el sistema dio precaución o alerta. La "
-                "barra es la probabilidad más alta de ese día."
-            )
+            st.markdown("".join(items_html), unsafe_allow_html=True)
+        else:
+            st.write("Sin precauciones ni alertas en el periodo.")
+        st.caption(
+            "Días recientes en que el sistema dio precaución o alerta. La "
+            "barra es la probabilidad más alta de ese día."
+        )
 
     # 3. Mapa a ancho completo
     with st.container(border=True, key="card-mapa"):
@@ -690,7 +679,7 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
         st.markdown(_calendario_html(log, n_dias=90), unsafe_allow_html=True)
     st.caption(
         "Cada cuadro es un día. Verde: sin alertas. Amarillo: hubo "
-        "precaución. Rojo: hubo alerta. Gris: sin lecturas ese día (menos de 2 "
+        "precaución. Rojo: hubo alerta roja. Gris: sin lecturas ese día (menos de 2 "
         "estaciones del IDEAM reportando), por lo que no se sabe el estado."
     )
 
@@ -764,14 +753,14 @@ def _grafico_historico(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
         if not precauciones.empty:
             fig.add_trace(go.Scatter(
                 x=precauciones["timestamp"], y=precauciones["proba_alerta"],
-                mode="markers", name="Precaución",
-                marker=dict(color="#f39c12", size=6, symbol="x"), yaxis="y2",
+                mode="markers", name=ESTADO_UI["PRECAUCIÓN"]["etiqueta"],
+                marker=dict(color=ESTADO_UI["PRECAUCIÓN"]["color"], size=6, symbol="x"), yaxis="y2",
             ))
         if not alertas.empty:
             fig.add_trace(go.Scatter(
                 x=alertas["timestamp"], y=alertas["proba_alerta"],
-                mode="markers", name="Alerta",
-                marker=dict(color="#e74c3c", size=6, symbol="x"), yaxis="y2",
+                mode="markers", name=ESTADO_UI["ALERTA"]["etiqueta"],
+                marker=dict(color=ESTADO_UI["ALERTA"]["color"], size=6, symbol="x"), yaxis="y2",
             ))
             for ts in alertas["timestamp"].iloc[::max(1, len(alertas) // 200)]:
                 fig.add_vline(x=ts, line=dict(color="rgba(231,76,60,.5)", width=0.6, dash="dot"), opacity=0.3)
@@ -795,7 +784,7 @@ def _grafico_historico(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
         _estilo_plotly(fig)
         st.plotly_chart(fig, width="stretch")
         st.caption(
-            f"En este período: {len(alertas)} alertas y {len(precauciones)} precauciones. "
+            f"En este período: {len(alertas)} horas en alerta roja y {len(precauciones)} en precaución. "
             "Las líneas verticales se muestran submuestreadas para rendimiento."
         )
 
@@ -813,7 +802,7 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
             "fila muestra qué se midió y qué estado calculó."
         )
         log_mostrar = log.tail(100).iloc[::-1].copy()
-        # Estado como lo lee la comunidad: Sin alerta / Alerta naranja / Alerta roja
+        # Estado como lo lee la comunidad: Sin alerta / Precaución / Alerta roja
         log_mostrar["estado"] = log_mostrar["estado"].map(lambda e: ESTADO_UI[e]["etiqueta"])
         log_mostrar = log_mostrar.rename(columns=NOMBRES_LEGIBLES).round(2)
         color_por_etiqueta = {ui["etiqueta"]: ui["pill_txt"] for ui in ESTADO_UI.values()}
@@ -848,23 +837,23 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
             st.metric(
                 "Horas de riesgo detectadas (desde precaución)",
                 f"{RECALL_PRECAUCION:.1%}",
-                help="Recall con probabilidad ≥ 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
+                help="Recall con probabilidad ≥ 0.30 (Precaución o más). Fuente: simulate/10_metricas_ternario.py",
             )
             st.metric(
                 "Horas de riesgo detectadas (solo alerta roja)",
                 f"{RECALL_ALERTA:.1%}",
-                help="Recall con probabilidad ≥ 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
+                help="Recall con probabilidad ≥ 0.70 (Alerta roja). Fuente: simulate/10_metricas_ternario.py",
             )
         with c2:
             st.metric(
                 "Avisos acertados (desde precaución)",
                 f"{PRECISION_PRECAUCION:.1%}",
-                help="Precisión con probabilidad ≥ 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
+                help="Precisión con probabilidad ≥ 0.30 (Precaución o más). Fuente: simulate/10_metricas_ternario.py",
             )
             st.metric(
                 "Alertas rojas acertadas",
                 f"{PRECISION_ALERTA:.1%}",
-                help="Precisión con probabilidad ≥ 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
+                help="Precisión con probabilidad ≥ 0.70 (Alerta roja). Fuente: simulate/10_metricas_ternario.py",
             )
 
     # 4. Qué factores pesan más en la alerta
@@ -878,7 +867,7 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
         try:
             # Nombres tomados del propio modelo para no depender del orden de FEATURE_COLS
             nombres = getattr(modelo, "feature_names_in_", FEATURE_COLS)
-            importancias = dict(zip(nombres, modelo.feature_importances_))
+            importancias = dict(zip(nombres, modelo.feature_importances_, strict=True))
             df_imp = (
                 pd.DataFrame(
                     {"feature": list(importancias.keys()), "importance": list(importancias.values())}
@@ -949,8 +938,7 @@ def _detalle_lectura(log_dia: pd.DataFrame) -> None:
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown(f"**Fecha y hora:** `{fila['timestamp']}`")
-        etiqueta = ESTADO_UI[fila["estado"]]["etiqueta"]
-        st.markdown(f"**Estado de alerta:** {_pill(fila['estado'], etiqueta)}", unsafe_allow_html=True)
+        st.markdown(f"**Estado de alerta:** {_pill(fila['estado'])}", unsafe_allow_html=True)
         st.markdown(f"**Probabilidad de riesgo:** `{fila['proba_alerta']:.4f}`")
 
     with col_b:
@@ -1139,8 +1127,8 @@ _GUIA_FAQ = [
     {
         "cat": "El proyecto",
         "q": "¿Qué significan verde, amarillo y rojo?",
-        "simple": "NORMAL (verde): sin señales de riesgo. PRECAUCIÓN (amarillo): conviene vigilar. ALERTA (rojo): probabilidad alta de lluvia suficiente para generar escorrentía importante en las próximas 6 horas.",
-        "tecnico": "Bandas: &lt;0.30 NORMAL · 0.30–0.70 PRECAUCIÓN · ≥0.70 ALERTA.",
+        "simple": "Sin alerta (verde): sin señales de riesgo. Precaución (amarillo): conviene vigilar. Alerta roja (rojo): probabilidad alta de lluvia suficiente para generar escorrentía importante en las próximas 6 horas.",
+        "tecnico": "Bandas de probabilidad: &lt;0.30 Sin alerta · 0.30–0.70 Precaución · ≥0.70 Alerta roja (en el código: NORMAL / PRECAUCIÓN / ALERTA). Sin lluvia en 24 h no hay aviso.",
     },
     {
         "cat": "El proyecto",
@@ -1244,7 +1232,7 @@ def _simulador_modelo(modelo) -> None:
 
     # ── escenarios rápidos ────────────────────────────────────────────────
     cols_btn = st.columns(len(_ESCENARIOS))
-    for col, (nombre, vals) in zip(cols_btn, _ESCENARIOS.items()):
+    for col, (nombre, vals) in zip(cols_btn, _ESCENARIOS.items(), strict=True):
         if col.button(nombre, width="stretch", key="btn_" + nombre[:6]):
             for k, v in vals.items():
                 st.session_state[k] = v
@@ -1331,7 +1319,7 @@ _GUIA_CSS = _guia_block("""
 .cl-guia-node-desc {font-size:11px;color:#8b95a5;margin-top:4px;line-height:1.3}
 .cl-guia-badge {display:inline-flex;align-items:center;gap:5px;margin-top:10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:4px 8px;border-radius:999px}
 .cl-guia-badge-ok {background:rgba(46,204,113,.15);color:#2ecc71;border:1px solid rgba(46,204,113,.3)}
-.cl-guia-badge-next {background:transparent;color:#f39c12;border:1px dashed rgba(243,156,18,.5)}
+.cl-guia-badge-next {background:transparent;color:#f1c40f;border:1px dashed rgba(241,196,15,.5)}
 .cl-guia-pulse {width:6px;height:6px;border-radius:50%;background:#2ecc71;box-shadow:0 0 0 0 rgba(46,204,113,.7);animation:cl-guia-pulse 1.8s infinite}
 @keyframes cl-guia-pulse {0%{transform:scale(.95);box-shadow:0 0 0 0 rgba(46,204,113,.7)}70%{transform:scale(1);box-shadow:0 0 0 6px rgba(46,204,113,0)}100%{transform:scale(.95);box-shadow:0 0 0 0 rgba(46,204,113,0)}}
 .cl-guia-conn {width:24px;height:2px;background:linear-gradient(90deg,#3498db,#1abc9c);align-self:center;opacity:.5;border-radius:1px}
@@ -1498,7 +1486,7 @@ CSS_GLOBAL = """
 <style>
 :root{--cl-bg:#0b0d11;--cl-card:#13171d;--cl-border:rgba(255,255,255,.08);
 --cl-text:#e8ecf1;--cl-muted:#8b95a5;--cl-accent:#3498db;
---cl-ok:#2ecc71;--cl-warn:#f39c12;--cl-danger:#e74c3c}
+--cl-ok:#2ecc71;--cl-warn:#f1c40f;--cl-danger:#e74c3c}
 [data-testid="stMainBlockContainer"]{padding-top:4rem;max-width:1400px}
 [data-testid="stSidebarUserContent"]{padding-top:.25rem;overflow:visible}
 [data-testid="stSidebarHeader"]{padding-bottom:0}
@@ -1574,22 +1562,17 @@ _LOGO_B64 = base64.b64encode(_LOGO_SVG.encode("utf-8")).decode("ascii")
 
 
 def _pill(estado: str, texto: str | None = None) -> str:
-    """Genera una pill de estado usando ESTADO_UI (texto: por defecto, el nombre del estado)."""
+    """Pill de estado con su color (texto: por defecto, la etiqueta visible del estado)."""
     ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
     return (
         f'<span class="cl-pill" style="background:{ui["soft"]};color:{ui["pill_txt"]}">'
-        f'<span class="cl-dot" style="background:{ui["color"]}"></span>{texto or estado}</span>'
+        f'<span class="cl-dot" style="background:{ui["color"]}"></span>{texto or ui["etiqueta"]}</span>'
     )
 
 
 def _badge_estado(estado: str) -> str:
-    """Genera una pill de estado con texto 'Prototipo activo · {estado}'."""
-    ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
-    return (
-        f'<span class="cl-pill" style="background:{ui["soft"]};color:{ui["pill_txt"]}">'
-        f'<span class="cl-dot" style="background:{ui["color"]}"></span>'
-        f'Prototipo activo · {estado}</span>'
-    )
+    """Pill de estado con texto 'Prototipo activo · {etiqueta del estado}'."""
+    return _pill(estado, f"Prototipo activo · {ESTADO_UI.get(estado, ESTADO_UI['NORMAL'])['etiqueta']}")
 
 
 def _badge_fijo(texto: str, bg: str, color: str) -> str:
@@ -1636,14 +1619,14 @@ def main() -> None:
         for k in ("SODAPY_APP_TOKEN", "SODAPY_USERNAME", "SODAPY_PASSWORD"):
             if k in st.secrets:
                 os.environ.setdefault(k, str(st.secrets[k]))
-    except Exception:
+    except Exception:  # noqa: S110 — sin secrets.toml (uso local): se usan .env / variables de entorno
         pass
 
-    # Sembrar BD SQLite si no existe (lazy, silencioso)
+    # Sembrar BD SQLite si no existe (lazy; es solo una copia, no debe frenar el tablero)
     try:
         asegurar_db_sembrada()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[dashboard] no se pudo crear centinela.db: {exc!r}", file=sys.stderr)
 
     with st.spinner("Cargando datos..."):
         try:
@@ -1721,7 +1704,7 @@ def main() -> None:
         format_func=lambda x: "🏘️ Vista pública" if x == "Vista Pública" else "🛠️ Vista operador (JAC)",
     )
     st.sidebar.caption(f"Última lectura: {ultima['timestamp']}")
-    st.sidebar.caption(f"Estado: {estado_actual}")
+    st.sidebar.caption(f"Estado: {ESTADO_UI[estado_actual]['etiqueta']}")
     st.sidebar.caption("CentineLA — Bairon Nicolás Calle Rivera · ITM · Territorio INN 2026")
 
     # Botón guía del proyecto en sidebar
@@ -1781,7 +1764,7 @@ def main() -> None:
                     msg_caption = msg_transparencia
                 else:
                     msg_caption = resultado["error"]
-            except Exception as exc:  # noqa: BLE001 — capturar todo es intencional
+            except Exception as exc:  # capturar todo es intencional
                 # Error no previsto: detalle a los logs del servidor, al usuario solo
                 # el mensaje genérico (nunca una traza).
                 print(f"[actualizar_ahora] error no controlado: {exc!r}", file=sys.stderr)

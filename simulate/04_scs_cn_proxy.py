@@ -13,14 +13,12 @@ Salida:
     ../data/processed/proxy_q_la_honda.csv
 """
 
-from pathlib import Path
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
 from cuenca_la_honda_params import CN
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_RAW_DIR = BASE_DIR / "data" / "raw"

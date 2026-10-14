@@ -16,11 +16,10 @@ Uso:
     python 06_etl_features.py
 """
 
-from pathlib import Path
 import os
+from pathlib import Path
 
 import pandas as pd
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PROCESSED_DIR = BASE_DIR / "data" / "processed"
@@ -185,7 +184,7 @@ def diagnostico_etapas_6h(df_proxy, df_calidad, base_horaria):
     columnas_entrada = list(features.columns)
     conjunto_antes_target = features.copy()
     conjunto_antes_target["target_6h"] = target
-    tras_dropna_target = len(conjunto_antes_target.dropna(subset=columnas_entrada + ["target_6h"]))
+    tras_dropna_target = len(conjunto_antes_target.dropna(subset=[*columnas_entrada, "target_6h"]))
 
     print("\n=== DIAGNOSTICO 6h POR ETAPAS ===")
     print(f"Total original: {total_original} | perdido en etapa: 0")
@@ -251,7 +250,7 @@ def armar_dataset(base_horaria, horizonte_horas):
     dataset[target_col] = base_horaria["Q_scs_proxy"].shift(-horizonte_horas)
 
     columnas_entrada = [c for c in dataset.columns if c != target_col]
-    dataset = dataset.dropna(subset=columnas_entrada + [target_col]).copy()
+    dataset = dataset.dropna(subset=[*columnas_entrada, target_col]).copy()
     dataset = dataset.reset_index().rename(columns={"index": "timestamp"})
 
     dataset = dataset.sort_values("timestamp").reset_index(drop=True)

@@ -23,9 +23,9 @@ con código != 0), se devuelve ok=False y el log anterior se conserva.
 
 import importlib.util
 import os
-import sys
 import sqlite3
 import subprocess
+import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -100,8 +100,8 @@ def _leer_ultimo_ts(codigo: str) -> str:
                 # Redondear a la hora
                 ts = ts.floor("h")
                 return ts.strftime("%Y-%m-%dT%H:%M:%S")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[actualizar_ahora] no se pudo leer el proxy para el punto de partida: {e}", file=sys.stderr)
 
     return FECHA_INICIO_DEFAULT
 
@@ -216,6 +216,7 @@ def _ejecutar_script(script_relativo: str) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=120,
+            check=False,  # el código de salida se revisa abajo
         )
         if result.returncode != 0:
             print(
@@ -379,7 +380,7 @@ def actualizar_ahora(estaciones: tuple[str, ...] = ESTACIONES_DEFAULT) -> dict[s
         df_log = pd.read_csv(LOG_PATH, usecols=["timestamp"], parse_dates=["timestamp"])
         if not df_log.empty:
             ultima_lectura = df_log["timestamp"].max().strftime("%Y-%m-%d %H:%M")
-    except Exception as e:  # noqa: BLE001 — capturar todo es intencional
+    except Exception as e:  # capturar todo es intencional
         return _error("No se pudo leer el log actualizado", f"Error leyendo el log: {e}")
 
     return {

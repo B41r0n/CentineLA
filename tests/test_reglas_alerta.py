@@ -45,3 +45,12 @@ def test_gateway_y_metricas_usan_el_modulo_compartido():
         src = (BASE_DIR / "simulate" / script).read_text(encoding="utf-8")
         assert "from reglas_alerta import" in src, script
         assert not re.search(r"^UMBRAL_(PRECAUCION|ALERTA)\s*=", src, re.MULTILINE), script
+
+
+def test_08_y_10_evaluan_la_misma_ventana():
+    # Si difieren, el barrido de 08 y las métricas publicadas por 10 hablan de pruebas distintas.
+    def corte(script):
+        src = (BASE_DIR / "simulate" / script).read_text(encoding="utf-8")
+        return re.search(r'^FECHA_CORTE_EVALUACION = "([^"]+)"', src, re.MULTILINE).group(1)
+
+    assert corte("08_clasificador_6h.py") == corte("10_metricas_ternario.py")

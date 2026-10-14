@@ -18,12 +18,13 @@ Control: el modelo en 0.20 debe reproducir ≈0.755 / ≈0.406 (modelo del 01-oc
 datos reparados el 13-oct-2026).
 """
 
+import sys
 from pathlib import Path
+
 import joblib
 import pandas as pd
-from sklearn.metrics import precision_score, recall_score
-
 from reglas_alerta import ajustar_proba
+from sklearn.metrics import precision_score, recall_score
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PROCESSED_DIR = BASE_DIR / "data" / "processed"
@@ -83,7 +84,7 @@ def main():
     print("=== Métricas para umbrales ternarios ===")
     print(f"Fecha de corte de evaluacion: {FECHA_CORTE_EVALUACION}")
     df = cargar_datos()
-    feature_cols, p90, train, test, x_train, y_train, x_test, y_test = preparar_datos(df)
+    feature_cols, p90, train, test, _x_train, _y_train, x_test, y_test = preparar_datos(df)
 
     print(f"Dataset: {DATASET_PATH}")
     print(f"n train: {len(train)} | n test: {len(test)}")
@@ -138,4 +139,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())
