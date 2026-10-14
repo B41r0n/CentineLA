@@ -12,6 +12,8 @@ Las 3 estaciones IDEAM objetivo tienen histórico completo, verificado fila por 
   Hueco real de instrumento confirmado contra CSV crudo en Fase 2: última lectura antes del hueco **2019-02-18 16:00**, primera lectura posterior **2019-07-26 11:00**. La estimación de Fase 1 ("jul-2019→dic-2020") era incorrecta — el inicio real del hueco es febrero de 2019. Marcar esa ventana como "sin dato" en el ETL, no interpolar.
 - **Aeropuerto Olaya Herrera (0027015330)** — 918.046 filas, 2016-12-31 a 2026-07-09. Dos sensores de precipitación mezclados: codigosensor 240 y 257. **Decisión Fase 2: sensor 240 canónico del pipeline; 257 queda solo como QA.** Olaya sensor 240 también tiene hueco real confirmado contra CSV crudo: cae a 761 filas en 2019-03 (vs ~4000 en meses normales), en 0 durante abr-jun 2019, retoma 2019-08-24. Este hueco se detectó durante el filtro de calidad del ETL (36k filas perdidas por n_estaciones<2), no en la revisión original de Fase 1.
 
+Los conteos de filas son los de la descarga de Fase 1 (hasta 2026-07-09). Desde entonces Metromedellín y Olaya Herrera se extienden con el botón **Actualizar ahora** (`simulate/11_actualizar_ahora.py`); al 2026-10-07 el proxy llega a esa fecha.
+
 Las 3 están a 5,7-6,7 km de La Honda (no <1km como los candidatos originales Jardín Botánico/Bermejala, descartados por no tener histórico en s54a-sgyg por numeración de estación incompatible).
 
 Parámetros de cuenca (Fase 1, punto 3) también cerrados — ver nueva sección "Parámetros de cuenca La Honda" más abajo.
@@ -76,11 +78,11 @@ CUENCA ALTA                    TRAMO MEDIO                  TRAMO BAJO
 
 ## Componente IA/ML (decisión de diseño — actualizada Fase 2)
 
-- **Pivote de regresión a clasificación:** se probaron 3 enfoques de `RandomForestRegressor` — ninguno superó el baseline de persistencia simple en el subset de eventos reales. Causa: 366 eventos en 43k filas (0.85%), el RF promedia hacia la media y diluye la cola. Decisión: pivote a `RandomForestClassifier`.
+- **Pivote de regresión a clasificación:** se probaron 3 enfoques de `RandomForestRegressor` — ninguno superó el baseline de persistencia simple en el subset de eventos reales. Causa: ~8 % de horas con escorrentía >0 en el dataset (366 en el test de 7,753 filas, 4.7 %); el RF promedia hacia la media y diluye la cola. Decisión: pivote a `RandomForestClassifier`.
 - **Target de clasificación:** `label_6h = 1` si `target_6h > p90(train)`. p90 calculado **solo sobre train**, nunca sobre test. Con distribución actual p90=0.0, equivale a "hora con escorrentía >0".
 - **Algoritmo en producción:** `RandomForestClassifier(n_estimators=200, random_state=42, class_weight='balanced')`. `class_weight='balanced'` es la corrección estándar de sklearn para desbalance.
-- **Umbral operativo del gateway (binario):** 0.20 sobre `predict_proba` en `09_gateway_simulado.py`. Recall=0.74, FP/TP≈1.5:1.
-- **Sistema de alertas del dashboard (ternario, desde 2026-10):** NORMAL `proba < 0.30` (verde #2ecc71), PRECAUCIÓN `0.30 ≤ proba < 0.70` (amarillo #f39c12), ALERTA `proba ≥ 0.70` (rojo #e74c3c) — ver `clasificar_estado()` y `UMBRAL_PRECAUCION`/`UMBRAL_ALERTA` en `dashboard/app.py`. El log histórico `ALERTA_6H`/`NORMAL` se normaliza a ternario al cargar. El clasificador sigue siendo una fuente dentro de la fusión multi-sensor (regla: ≥2 fuentes críticas = rojo), no árbitro único.
+- **Umbral binario histórico (no vigente):** 0.20 sobre `predict_proba`. Recall=0.74, FP/TP≈1.5:1 (corrida del 27-jul-2026). El gateway actual (`09_gateway_simulado.py`) ya usa la escala ternaria.
+- **Sistema de alertas del dashboard (ternario, desde 2026-10):** NORMAL `proba < 0.30` (verde #2ecc71), PRECAUCIÓN `0.30 ≤ proba < 0.70` (amarillo #f39c12), ALERTA `proba ≥ 0.70` (rojo #e74c3c) — ver `clasificar_estado()` y `UMBRAL_PRECAUCION`/`UMBRAL_ALERTA` en `dashboard/app.py`. Criterio `proba >= umbral` en dashboard, gateway y `10_metricas_ternario.py`. El gateway escribe los 3 estados en el log; el dashboard igual los recalcula desde `proba_alerta` al cargar (logs antiguos traían `ALERTA_6H`/`NORMAL`). El clasificador sigue siendo una fuente dentro de la fusión multi-sensor (regla: ≥2 fuentes críticas = rojo), no árbitro único.
 - **Techo real de recall:** ~0.82 con umbral 0.10. Ningún umbral en [0.1, 0.5] alcanza recall ≥ 0.85 — limitación conocida, mitigada por diseño multi-fuente.
 - **Split:** cronológico con corte fijo. Train hasta 2025-07-06 16:00 (35,316 filas, 79.6%), test desde 2025-07-06 17:00 hasta 2026-09-30 (9,055 filas, 20.4%). Nunca aleatorio.
 - **Horizonte priorizado:** 6h (cuenca de ladera, tiempo de concentración corto; deadline oct-2026). Datasets 12h/24h generados pero no entrenados con el mismo rigor.
@@ -108,7 +110,7 @@ CUENCA ALTA                    TRAMO MEDIO                  TRAMO BAJO
 | ML predictivo | Python + scikit-learn (RandomForestRegressor en experimentos; RandomForestClassifier en producción) |
 | Broker MQTT | Mosquitto |
 | Backend dashboard | Streamlit (dashboard/app.py) |
-| Base de datos | SQLite (local) + PostgreSQL (cloud, futuro) |
+| Base de datos | Hoy: CSV en `data/processed/` (lo que lee el dashboard) + copia SQLite `centinela.db` para consultas externas. Futuro: PostgreSQL (cloud) |
 | Alertas | WhatsApp Business API / Telegram Bot |
 | Datos externos | API Socrata `datos.gov.co` (IDEAM) |
 | Gestión de secretos | python-dotenv + `.env` (no trackeado) |
@@ -123,7 +125,7 @@ CUENCA ALTA                    TRAMO MEDIO                  TRAMO BAJO
 
 Schema confirmado de `hp9r-jxuu` (columnas en minúscula vía sodapy): `codigo`, `nombre`, `categoria`, `tecnologia`, `estado`, `departamento`, `municipio`, `ubicacion` (o `latitud`/`longitud` planos), `altitud`, `fecha_instalacion`, `fecha_suspension`, `area_operativa`, `corriente`, `area_hidrografica`, `zona_hidrografica`, `subzona_hidrografica`, `entidad`.
 
-Las credenciales Socrata se leen desde variables de entorno (`SODAPY_USERNAME`, `SODAPY_PASSWORD`) mediante `python-dotenv`. Ver `.env.example` en la raíz. Opcionalmente se puede usar `SODAPY_APP_TOKEN` para evitar rate limits estrictos; sacar token gratis en `dev.socrata.com` y pasarlo al cliente `Socrata(..., app_token=...)`. El archivo `.env` está en `.gitignore` y nunca debe subirse.
+Las credenciales Socrata se leen desde variables de entorno mediante `python-dotenv` (o desde los secrets de Streamlit en el deploy): se requiere `SODAPY_APP_TOKEN` (recomendado; sacar token gratis en `dev.socrata.com`) o, en su lugar, `SODAPY_USERNAME` + `SODAPY_PASSWORD`. Ver `.env.example` en la raíz. El archivo `.env` está en `.gitignore` y nunca debe subirse.
 
 ## Prototipo IoT ya operativo (base de código para nodos ESP32 de campo)
 
@@ -141,9 +143,11 @@ Estación calidad de aire v13, Wokwi: ESP32 + DHT22 (temp/humedad) + MQ-135 (CO2
 ```
 CentineLA/
   .env.example                   # nombres de variables de entorno, sin valores
+  .streamlit/config.toml         # tema oscuro del dashboard
   .gitignore                     # excluye .env, venv, datos crudos, datasets 12h/24h, filas_baja_calidad y modelos huérfanos
   README.md                      # documentación principal del proyecto
-  requirements.txt               # pandas, sodapy, scikit-learn, joblib, streamlit, numpy, matplotlib, plotly, folium, streamlit-folium, requests, python-dotenv
+  requirements.txt               # versiones exactas: pandas, sodapy, scikit-learn, joblib, streamlit, numpy, matplotlib, plotly, folium, streamlit-folium, requests, python-dotenv… (Python >= 3.12)
+  requirements-dev.txt           # pytest, ruff
   scripts/
     01_buscar_estaciones.py      # filtra catálogo IDEAM por Valle de Aburrá, rankea por distancia a La Honda
     02_pull_historico.py         # pull histórico por estación (paginación + bisección recursiva + dedup); lee credenciales de .env
@@ -157,16 +161,19 @@ CentineLA/
     06_etl_features.py           # ETL features + Q_actual/Q_lags + split preservado
     07_entrenar_modelo_6h.py     # 3 enfoques RF regresor; joblib dump
     08_clasificador_6h.py        # clasificador binario + barrido de umbrales (probabilidad cruda)
-    09_gateway_simulado.py       # gateway streaming con validación batch vs stream
+    09_gateway_simulado.py       # gateway streaming con validación batch vs stream (sale con código 1 si falla)
+    10_metricas_ternario.py      # recall/precisión de los umbrales 0.30/0.70 (fuente de las métricas del dashboard)
+    11_actualizar_ahora.py       # actualización en vivo desde IDEAM: 04 → 06 → 09 + copia SQLite centinela.db
     models/                      # trackeado: clf_6h.joblib; rf_6h*.joblib y clf_6h_baseline_*.joblib ignorados
   dashboard/
     app.py                       # Streamlit — Fase 3 CERRADA
     _check_fixes.py              # verificaciones del dashboard
+  tests/                         # pytest: deduplicación en vivo, umbrales, calendario, simulador
 ```
 
 ## Seguridad y gestión de secretos
 
-- Las credenciales de Socrata (`SODAPY_USERNAME`, `SODAPY_PASSWORD`) se leen desde un archivo `.env` mediante `python-dotenv`. Ver `.env.example`.
+- Las credenciales de Socrata (`SODAPY_APP_TOKEN`, o `SODAPY_USERNAME` + `SODAPY_PASSWORD`) se leen desde un archivo `.env` mediante `python-dotenv`, o desde los secrets de Streamlit en el deploy. Ver `.env.example`.
 - `.env` está en `.gitignore` y **nunca** debe subirse al repositorio.
 - El historial de Git fue reescrito con `git checkout --orphan` + force-push para eliminar las credenciales hardcodeadas que existían en versiones anteriores de `scripts/02_pull_historico.py`. Aun así, las credenciales expuestas deben considerarse comprometidas y rotarse.
 - Para nodos ESP32/Wokwi futuros, usar `secrets.h` o equivalente y agregarlo a `.gitignore`.
@@ -181,7 +188,7 @@ CentineLA/
 - Scripts standalone ejecutables con `python nombre.py`, no notebooks
 - Nombres de columna: siempre inspeccionar schema real antes de filtrar (Socrata cambia convenciones entre datasets) — no asumir nombres de campo a ciegas
 
-## Roadmap — estado al 2026-07-11
+## Roadmap — estado al 2026-10-13
 
 1. **[CERRADO]** Pull histórico estaciones `0027015290`, `0027015310`, `0027015330`
 2. **[CERRADO]** ETL features (lags, rolling, Q_actual/Q_lags, split cronológico)
@@ -189,6 +196,7 @@ CentineLA/
 4. **[CERRADO]** Modelado: 3 enfoques RF regresor + clasificador RF con barrido de umbrales
 5. **[CERRADO]** Gateway simulado en modo streaming con validación batch vs stream
 6. **[CERRADO — Fase 3]** Dashboard Streamlit consumiendo `log_gateway_simulado.csv` + `clf_6h.joblib`. Ver `dashboard/app.py`.
+6b. **[CERRADO]** Escala ternaria (0.30 / 0.70), métricas con `10_metricas_ternario.py` y actualización en vivo con `11_actualizar_ahora.py`.
 7. **[PENDIENTE CRÍTICO]** Derecho de petición formal a `atencionusuario@metropol.gov.co` — solo se envió aviso informal a `contacto@siata.gov.co`. Sin respuesta no hay fechas reales de eventos para validación honesta.
 8. **[PENDIENTE FINAL]** Documento de 5pp + video entrega
 
@@ -215,7 +223,7 @@ CentineLA/
 | RF weighted (×20) | 0.041974 | -0.083693 | 0.374840 | peor |
 | **Baseline persistencia** | **0.014288** | **0.510524** | **0.189361** | referencia |
 
-Causa: 0.85% de eventos en el dataset. RF diluyeresiduals hacia la media estructuralmente.
+Causa: ~8 % de horas con escorrentía >0 (366 en el test de entonces, 4.7 %). El RF diluye los residuos hacia la media de forma estructural.
 
 ### Clasificador RF (enfoque final)
 
@@ -230,24 +238,28 @@ Causa: 0.85% de eventos en el dataset. RF diluyeresiduals hacia la media estruct
 | 0.15 | 0.781 | 0.311 | 80 | 633 | 286 |
 | 0.10 | 0.817 | 0.257 | 67 | 865 | 299 |
 
-**Métricas con umbrales ternarios (corrida del 03-oct-2026):**
+**Métricas con umbrales ternarios (vigentes, corrida del 13-oct-2026, criterio `proba >= umbral`):**
 
 | Umbral | Recall    | Precisión | Rol en el sistema                |
 |--------|-----------|-----------|----------------------------------|
-| 0.20   | 0.752998  | 0.415344  | referencia binaria anterior      |
-| 0.30   | 0.714628  | 0.497496  | PRECAUCIÓN (amarillo) o más      |
-| 0.70   | 0.549161  | 0.860902  | ALERTA (rojo)                    |
+| 0.20   | 0.755396  | 0.406977  | referencia binaria anterior      |
+| 0.30   | 0.717026  | 0.493399  | PRECAUCIÓN (amarillo) o más      |
+| 0.70   | 0.551559  | 0.861423  | ALERTA (rojo)                    |
+
+El barrido del 27-jul-2026 de arriba usaba `proba > umbral`; la versión del 03-oct-2026 también (0.714628 / 0.497496 en 0.30).
 
 **Parámetros:** Train 35,316 filas (hasta 2025-07-06 16:00), Test 9,055 filas (2025-07-06 17:00 → 2026-09-30), 417 positivos en test. Reproducible con `python simulate/10_metricas_ternario.py`.
 
-**Lectura:** el amarillo avisa en más horas de riesgo (71%) pero la mitad de sus avisos no coinciden con una; el rojo detecta menos (55%) pero 86% de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
+**Lectura:** el amarillo avisa en más horas de riesgo (72%) pero la mitad de sus avisos no coinciden con una; el rojo detecta menos (55%) pero 86% de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
 
 Techo real de recall aislado: ~0.82. Limitación mitigada por fusión multi-fuente en la arquitectura.
 
 ## Fase 2 — Gateway simulado
 
 - `simulate/09_gateway_simulado.py` valida features streaming vs batch con 500 timestamps aleatorios, epsilon 1e-6 — **validación pasó limpia**.
-- Inferencia sobre serie completa (~9.5 años): 4947 alertas ALERTA_6H / 38918 NORMAL (log binario del gateway). El dashboard lo re-etiqueta a NORMAL / PRECAUCIÓN / ALERTA con los umbrales ternarios.
+- Inferencia sobre serie completa (datos al 2026-10-07): 45,346 horas → 40,979 NORMAL / 901 PRECAUCIÓN / 3,466 ALERTA (log ternario, ~16 s por corrida). Versiones anteriores del log eran binarias (4,947 `ALERTA_6H` / 38,918 `NORMAL`).
+- Si la validación batch vs stream falla, `09` sale con código 1 sin escribir el log, para que `11_actualizar_ahora.py` reporte el error.
+- Limitación conocida: con 0 mm en 24 h el modelo a veces marca PRECAUCIÓN/ALERTA por `hora_dia`/`mes` (61 ALERTA y 172 PRECAUCIÓN en 14,315 horas secas del log). Corregirlo exige reentrenar.
 - Ventana de test real (2025-07-06 → 2026-07-09): 693 alertas en 7883 filas (8.8%), consistente con barrido de umbrales (~680 esperado para umbral 0.20) **(corrida previa, al 13-sep-2026)**.
 - Ventana de test actual (2025-07-06 → 2026-09-30): 9,055 filas, 417 positivos (label_6h=1).
 - Implementación: micro-lotes de 2048 filas con `n_jobs=1` en inferencia para evitar overhead de threading.

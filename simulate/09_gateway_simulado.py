@@ -22,6 +22,7 @@ Uso:
 from collections import deque
 from pathlib import Path
 import os
+import sys
 
 import joblib
 import numpy as np
@@ -287,13 +288,19 @@ def main():
 
     ok = validar_alineacion_features(stream_features, dataset, feature_cols)
     if not ok:
+        # Código de salida != 0: quien orqueste el pipeline (11_actualizar_ahora.py)
+        # debe enterarse de que el log NO se regeneró.
         print(
             "ABORTADO: bug de alineacion temporal detectado entre batch y streaming. "
-            "No se ejecuta inferencia hasta resolverlo."
+            "No se ejecuta inferencia hasta resolverlo.",
+            file=sys.stderr,
         )
-        return
+        sys.exit(1)
 
-    print("\n=== PASO 3 - Inferencia streaming con umbral 0.20 ===")
+    print(
+        f"\n=== PASO 3 - Inferencia streaming (PRECAUCIÓN >= {UMBRAL_PRECAUCION:.2f}, "
+        f"ALERTA >= {UMBRAL_ALERTA:.2f}) ==="
+    )
     log = simular_gateway(stream_features, modelo, feature_cols)
     if log.empty:
         raise ValueError("El log simulado quedo vacio; revisar disponibilidad de features completas.")
@@ -305,10 +312,8 @@ def main():
     log.to_csv(LOG_PATH, index=False)
     print(f"Log guardado: {LOG_PATH}")
 
-    total_alertas = int((log["estado"] == "ALERTA").sum())
-    total_normal = int((log["estado"] == "NORMAL").sum())
-    print(f"Total ALERTA: {total_alertas}")
-    print(f"Total NORMAL: {total_normal}")
+    for estado in ("NORMAL", "PRECAUCIÓN", "ALERTA"):
+        print(f"Total {estado}: {int((log['estado'] == estado).sum())}")
 
     dist_anual = (
         log.assign(anio=log["timestamp"].dt.year)
@@ -319,14 +324,6 @@ def main():
     )
     print("\nDistribucion temporal por anio:")
     print(dist_anual.to_string())
-
-    # Referencia operativa esperada (orden de magnitud): alrededor de 1k alertas en test.
-    referencia = 299 + 865
-    ratio = total_alertas / referencia if referencia > 0 else np.nan
-    print(
-        f"\nChequeo orden de magnitud vs referencia (~{referencia}): "
-        f"alertas={total_alertas}, ratio={ratio:.3f}"
-    )
 
     print("\n=== PASO 5 - Verificacion de archivo guardado ===")
     check = pd.read_csv(LOG_PATH, parse_dates=["timestamp"])

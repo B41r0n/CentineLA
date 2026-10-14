@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Bairon Nicolás Calle Rivera
+"""Tests del dashboard: calendario, simulador y criterio de umbrales."""
+
+import importlib.util
+from pathlib import Path
+
+import matplotlib
+import pandas as pd
+import pytest
+
+matplotlib.use("Agg")
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture(scope="module")
+def app():
+    spec = importlib.util.spec_from_file_location("app", BASE_DIR / "dashboard" / "app.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_umbrales_inclusivos(app):
+    # El semáforo, el gateway y 10_metricas_ternario.py usan proba >= umbral.
+    assert app.clasificar_estado(0.2999) == "NORMAL"
+    assert app.clasificar_estado(0.30) == "PRECAUCIÓN"
+    assert app.clasificar_estado(0.6999) == "PRECAUCIÓN"
+    assert app.clasificar_estado(0.70) == "ALERTA"
+
+
+def test_calendario_dias_sin_lecturas_en_gris(app):
+    ts = pd.to_datetime(["2026-10-01 10:00", "2026-10-03 10:00", "2026-10-03 11:00"])
+    log = pd.DataFrame({"timestamp": ts, "estado": ["NORMAL", "ALERTA", "NORMAL"]})
+    html = app._calendario_html(log, n_dias=3)
+    assert '2026-10-01 · normal"' in html
+    assert '2026-10-02 · sin datos"' in html
+    assert '2026-10-03 · alerta"' in html
+
+
+def test_simulador_acumulados_coherentes(app):
+    valores = {"sim_p1": 2, "sim_r3": 6, "sim_r6": 12, "sim_r12": 18, "sim_r24": 30, "sim_r48": 54}
+    x, ajustado = app.features_simulador(valores, pd.Timestamp("2026-10-01 14:00"))
+    assert not ajustado
+    assert list(x) == app.FEATURE_COLS
+    assert x["roll_sum_24h"] == 30 and x["P_basin"] == 2
+    assert x["lag_1h"] == pytest.approx((6 - 2) / 2)
+    assert x["lag_24h"] == pytest.approx((54 - 30) / 24)
+    assert x["Q_actual"] == pytest.approx(app._q_scs(30))
+    assert x["hora_dia"] == 14 and x["mes"] == 10
+
+
+def test_simulador_ajusta_acumulados_incoherentes(app):
+    valores = {"sim_p1": 10, "sim_r3": 5, "sim_r6": 5, "sim_r12": 5, "sim_r24": 5, "sim_r48": 5}
+    x, ajustado = app.features_simulador(valores, pd.Timestamp("2026-10-01 14:00"))
+    assert ajustado
+    assert x["roll_sum_3h"] == 10 and x["roll_sum_48h"] == 10
+
+
+def test_q_scs_coincide_con_abstraccion_inicial(app):
+    ia = 0.2 * ((25400 / app.CN) - 254)
+    assert app._q_scs(ia) == 0.0
+    assert app._q_scs(ia + 10) > 0
