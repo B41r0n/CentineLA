@@ -120,22 +120,13 @@ ESTADO_UI = {
 }
 
 
-# ── piloto de la Fase 3 en el mapa (posiciones ilustrativas, no GPS de campo) ──────
-# Recorrido esquemático de la quebrada, de la parte alta a la baja. El tramo medio se
-# centra en la obra de "Mi Río, Mis Quebradas" (Cra 48A–49 × Cl 70–71, límite Manrique /
-# Campo Valdés). Piloto según la cédula: 1 pluviómetro en la cuenca alta, 3 nodos en el
-# cauce del tramo medio cada ~500 m (el del medio con cámara) y 1 gateway en una sede
-# comunitaria. La ubicación real se define con visita de campo.
-RECORRIDO = [
-    {"nombre": "Cuenca alta (Parque Arví)", "lat": 6.2804, "lon": -75.5027},
-    {"nombre": "Tramo medio (Manrique / Campo Valdés)", "lat": 6.2657, "lon": -75.5582},
-    {"nombre": "Jardín Botánico", "lat": 6.2694, "lon": -75.5648},
-    {"nombre": "Moravia", "lat": 6.2781, "lon": -75.5670},
+# ── anclas geográficas de la quebrada (referencia visual aproximada, no GPS de campo) ─
+ANCLAS = [
+    {"nombre": "Cuenca Alta (Parque Arví)", "lat": 6.2804, "lon": -75.5027},
+    {"nombre": "Tramo Medio (La Honda)", "lat": 6.2694, "lon": -75.5648},
+    {"nombre": "Tramo Bajo (Moravia / Montecarlo)", "lat": 6.2781, "lon": -75.5670},
 ]
-ESPACIADO_NODOS_M = 500
-DESFASE_GATEWAY_M = 200      # sede comunitaria cerca del nodo del medio (ilustrativo)
-COLOR_PLUVIOMETRO = "#3498db"
-COLOR_GATEWAY = "#9b59b6"
+N_NODOS = 5
 
 FEATURE_COLS = [
     "P_basin", "Q_actual",
@@ -184,56 +175,45 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
-def _avanzar(origen: dict, destino: dict, metros: float) -> dict:
-    """Punto a `metros` de `origen` sobre la recta hacia `destino`."""
-    frac = metros / (1000 * _haversine_km(origen["lat"], origen["lon"], destino["lat"], destino["lon"]))
-    return {
-        "lat": origen["lat"] + frac * (destino["lat"] - origen["lat"]),
-        "lon": origen["lon"] + frac * (destino["lon"] - origen["lon"]),
-    }
+def interpolar_nodos(anclas, n_total: int) -> list[dict]:
+    """Genera n_total puntos a lo largo del recorrido real (alto→medio→bajo).
 
-
-def puntos_piloto() -> list[dict]:
-    """Equipos del piloto de la Fase 3 para el mapa (posiciones ilustrativas).
-
-    El nodo del medio va en el punto del tramo medio; los otros dos, a
-    ESPACIADO_NODOS_M aguas arriba y aguas abajo sobre el recorrido esquemático.
+    Camina por longitud de arco (haversine) sobre los segmentos consecutivos
+    Arví→La Honda y La Honda→Moravia, interpolando linealmente
+    DENTRO de cada segmento por separado. Los nodos quedan repartidos
+    proporcionalmente a la distancia real de cada tramo (no por parámetro t
+    uniforme entre anclas, que ignora que un segmento puede ser mucho más
+    largo que el otro y produce nodos mal distribuidos / recorrido torcido).
     """
-    alta, medio, bajo = RECORRIDO[0], RECORRIDO[1], RECORRIDO[2]
-    sensores = "Nivel ultrasónico, turbidez, semáforo LED, sirena y panel solar"
-    return [
-        {"tipo": "pluviometro", "nombre": "Pluviómetro (cuenca alta)", "corto": "Pluviómetro (Arví)",
-         "detalle": "Mide la lluvia en la cabecera de la quebrada",
-         "lat": alta["lat"], "lon": alta["lon"]},
-        {"tipo": "nodo", "nombre": "Nodo 1 (aguas arriba)", "corto": "N1", "detalle": sensores,
-         **_avanzar(medio, alta, ESPACIADO_NODOS_M)},
-        {"tipo": "nodo_camara", "nombre": "Nodo 2 (medio, con cámara)", "corto": "N2 + cámara",
-         "detalle": sensores + " + cámara IP", "lat": medio["lat"], "lon": medio["lon"]},
-        {"tipo": "nodo", "nombre": "Nodo 3 (aguas abajo)", "corto": "N3", "detalle": sensores,
-         **_avanzar(medio, bajo, ESPACIADO_NODOS_M)},
-        {"tipo": "gateway", "nombre": "Gateway (sede comunitaria)", "corto": "Gateway",
-         "detalle": "Raspberry Pi 4 + LoRa: recibe los nodos, corre el modelo y envía los avisos",
-         "lat": medio["lat"] + DESFASE_GATEWAY_M / 111_320, "lon": medio["lon"]},
-    ]
+    dist_acum = [0.0]
+    for i in range(len(anclas) - 1):
+        d = _haversine_km(
+            anclas[i]["lat"], anclas[i]["lon"],
+            anclas[i + 1]["lat"], anclas[i + 1]["lon"],
+        )
+        dist_acum.append(dist_acum[-1] + d)
 
+    dist_total = dist_acum[-1]
+    posiciones = np.linspace(0, dist_total, n_total)
 
-def _leyenda_mapa_html(estado: str) -> str:
-    """Leyenda del mapa (sirve para el interactivo y el estático)."""
-    color = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])["color"]
+    nodos = []
+    for i, pos in enumerate(posiciones):
+        seg_idx = len(dist_acum) - 2
+        for s in range(len(dist_acum) - 1):
+            if pos <= dist_acum[s + 1]:
+                seg_idx = s
+                break
 
-    def item(css: str, texto: str) -> str:
-        return (f'<span><span style="display:inline-block;width:12px;height:12px;{css};'
-                f'vertical-align:middle"></span> {texto}</span>')
+        d_ini, d_fin = dist_acum[seg_idx], dist_acum[seg_idx + 1]
+        frac = 0.0 if d_fin == d_ini else (pos - d_ini) / (d_fin - d_ini)
 
-    return (
-        '<div class="cl-leyenda" style="display:flex;gap:16px;font-size:12px;'
-        'color:var(--cl-muted);margin-top:6px">'
-        + item(f"background:{COLOR_PLUVIOMETRO};border-radius:2px;transform:rotate(45deg)", "Pluviómetro")
-        + item(f"background:{color};border-radius:50%", "Nodo de cauce (color = estado actual)")
-        + item(f"background:{color};border-radius:50%;box-shadow:0 0 0 2px #fff", "Nodo con cámara")
-        + item(f"background:{COLOR_GATEWAY};border-radius:2px", "Gateway")
-        + "</div>"
-    )
+        ancla_ini, ancla_fin = anclas[seg_idx], anclas[seg_idx + 1]
+        lat = ancla_ini["lat"] + frac * (ancla_fin["lat"] - ancla_ini["lat"])
+        lon = ancla_ini["lon"] + frac * (ancla_fin["lon"] - ancla_ini["lon"])
+
+        nodos.append({"nombre": f"Nodo {i + 1}", "lat": float(lat), "lon": float(lon)})
+
+    return nodos
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -286,29 +266,18 @@ def cargar_modelo():
 
 # ── componentes de mapa ───────────────────────────────────────────────────────
 
-def _estilo_punto(tipo: str, color_estado: str) -> dict:
-    """Color, tamaño y borde de cada tipo de equipo en el mapa."""
-    return {
-        "pluviometro": {"color": COLOR_PLUVIOMETRO, "radio": 8, "borde": "#ffffff", "grosor": 2},
-        "nodo": {"color": color_estado, "radio": 7, "borde": color_estado, "grosor": 2},
-        "nodo_camara": {"color": color_estado, "radio": 9, "borde": "#ffffff", "grosor": 3},
-        "gateway": {"color": COLOR_GATEWAY, "radio": 5, "borde": "#ffffff", "grosor": 2},
-    }[tipo]
-
-
-def _mapa_folium(recorrido: list[dict], puntos: list[dict], estado: str) -> None:
+def _mapa_folium(anclas: list[dict], nodos: list[dict], estado: str) -> None:
     import folium
     from streamlit_folium import st_folium
 
-    lats_a = [a["lat"] for a in recorrido]
-    lons_a = [a["lon"] for a in recorrido]
+    lats_a = [a["lat"] for a in anclas]
+    lons_a = [a["lon"] for a in anclas]
     centro_lat = float(np.mean(lats_a))
     centro_lon = float(np.mean(lons_a))
     # OpenStreetMap con filtro CSS para tema oscuro (CartoDB exige API key)
     m = folium.Map(
         location=[centro_lat, centro_lon],
         zoom_start=13,
-        zoom_snap=0.25,      # zoom fraccional: en celular el encuadre aprovecha mejor el ancho
         tiles="OpenStreetMap",
         attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     )
@@ -316,75 +285,105 @@ def _mapa_folium(recorrido: list[dict], puntos: list[dict], estado: str) -> None
     m.get_root().header.add_child(folium.Element(
         "<style>.leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) "
         "brightness(.92) contrast(.88) saturate(.55);}</style>"))
-    pad = 0.003   # ~330 m de margen alrededor del recorrido
+    pad = 0.015   # ~1.5 km de margen alrededor de las anclas
     m.fit_bounds(
         [[min(lats_a) - pad, min(lons_a) - pad],
          [max(lats_a) + pad, max(lons_a) + pad]]
     )
 
-    coords = [[a["lat"], a["lon"]] for a in recorrido]
-    folium.PolyLine(
-        coords, color="#3498db", weight=3, opacity=0.7, dash_array="6 6",
-        tooltip="Recorrido esquemático de la quebrada",
-    ).add_to(m)
+    coords = [[a["lat"], a["lon"]] for a in anclas]
+    folium.PolyLine(coords, color="#3498db", weight=3, opacity=0.7).add_to(m)
 
-    color_estado = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])["color"]
-    for p in puntos:
-        e = _estilo_punto(p["tipo"], color_estado)
+    ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
+    color_nodo = ui["color"]
+    for n in nodos:
         folium.CircleMarker(
-            location=[p["lat"], p["lon"]],
-            radius=e["radio"],
-            color=e["borde"],
-            weight=e["grosor"],
+            location=[n["lat"], n["lon"]],
+            radius=10,
+            color=color_nodo,
             fill=True,
-            fill_color=e["color"],
-            fill_opacity=0.9,
-            popup=folium.Popup(f"<b>{p['nombre']}</b><br>{p['detalle']}", max_width=260),
-            tooltip=p["nombre"],
+            fill_color=color_nodo,
+            fill_opacity=0.85,
+            popup=folium.Popup(n["nombre"], parse_html=True),
+            tooltip=n["nombre"],
         ).add_to(m)
 
     st_folium(m, height=550, use_container_width=True, returned_objects=[])
-    st.caption("Mapa interactivo (OpenStreetMap, tema oscuro). Toca un punto para ver qué equipo es.")
+    st.caption("Mapa interactivo (OpenStreetMap, tema oscuro).")
 
 
-def _mapa_estatico(recorrido: list[dict], puntos: list[dict], estado: str) -> None:
+def _mapa_estatico(anclas: list[dict], nodos: list[dict], estado: str) -> None:
+    import matplotlib.lines as mlines
+    import matplotlib.patches as mpatches
     import matplotlib.pyplot as plt
 
-    color_estado = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])["color"]
-    marcador = {"pluviometro": "D", "nodo": "o", "nodo_camara": "o", "gateway": "s"}
-    tam = {"pluviometro": 110, "nodo": 110, "nodo_camara": 220, "gateway": 80}
-    etiqueta_xy = {"pluviometro": (-8, 10), "nodo": (0, -16), "nodo_camara": (0, -20), "gateway": (9, 4)}
+    lats_linea = [a["lat"] for a in anclas]
+    lons_linea = [a["lon"] for a in anclas]
+    lats_nodos = [n["lat"] for n in nodos]
+    lons_nodos = [n["lon"] for n in nodos]
+
+    ui = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])
+    color = ui["color"]
 
     fig, ax = plt.subplots(figsize=(9, 6))
     fig.patch.set_facecolor("#13171d")
     ax.set_facecolor("#13171d")
 
-    # 1) Recorrido esquemático de la quebrada
-    ax.plot([a["lon"] for a in recorrido], [a["lat"] for a in recorrido],
-            color="#3498db", linewidth=2.2, linestyle="--", alpha=0.8, zorder=2)
-    for a in recorrido[2:]:   # tramo bajo; alta y medio ya tienen equipo encima
-        ax.annotate(a["nombre"], (a["lon"], a["lat"]), textcoords="offset points",
-                    xytext=(-8, 6), ha="right", fontsize=7, color="#8b95a5", style="italic")
+    # 1) Recorrido real — linea por las 3 anclas
+    ax.plot(lons_linea, lats_linea, color="#3498db", linewidth=2.5, zorder=2)
 
-    # 2) Equipos del piloto
-    for p in puntos:
-        e = _estilo_punto(p["tipo"], color_estado)
-        ax.scatter([p["lon"]], [p["lat"]], c=e["color"], s=tam[p["tipo"]], marker=marcador[p["tipo"]],
-                   edgecolors="white", linewidths=e["grosor"] - 0.5, zorder=5)
-        dx, dy = etiqueta_xy[p["tipo"]]
-        ax.annotate(p["corto"], (p["lon"], p["lat"]), textcoords="offset points", xytext=(dx, dy),
-                    ha="right" if dx < 0 else ("left" if dx > 0 else "center"),
-                    fontsize=7.5, color="#e8ecf1", zorder=6)
+    # 2) Marcadores de ancla
+    lat_min = min(a["lat"] for a in anclas)
+    lat_max_a = max(a["lat"] for a in anclas)
+    lon_min_a = min(a["lon"] for a in anclas)
+    lon_max_a = max(a["lon"] for a in anclas)
+    lat_rng = (lat_max_a - lat_min) or 1.0
+    lon_rng = (lon_max_a - lon_min_a) or 1.0
+
+    for a in anclas:
+        ax.scatter(
+            [a["lon"]], [a["lat"]],
+            s=200, facecolors="white", edgecolors="#3498db",
+            linewidths=2.5, zorder=5, marker="o",
+        )
+        cerca_inferior = (a["lat"] - lat_min) / lat_rng < 0.25
+        cerca_derecha = (lon_max_a - a["lon"]) / lon_rng < 0.25
+        if cerca_inferior:
+            txt_xy, txt_ha = (9, 10), "left"
+        elif cerca_derecha:
+            txt_xy, txt_ha = (-9, 10), "right"
+        else:
+            txt_xy, txt_ha = (9, -14), "left"
+        ax.annotate(
+            a["nombre"],
+            (a["lon"], a["lat"]),
+            textcoords="offset points",
+            xytext=txt_xy,
+            ha=txt_ha,
+            fontsize=7, color="#8b95a5", style="italic",
+        )
+
+    # 3) Nodos de monitoreo
+    ax.scatter(lons_nodos, lats_nodos, c=color, s=110, zorder=4, edgecolors="white", linewidths=1.5)
 
     ax.set_xlabel("Longitud", color="#e8ecf1")
     ax.set_ylabel("Latitud", color="#e8ecf1")
     ax.set_title(
-        "CentineLA — piloto en Q. La Honda (posiciones ilustrativas, no GPS de campo)",
+        "CentineLA — Q. La Honda (posiciones ilustrativas, no GPS de campo)",
         fontsize=10, color="#e8ecf1",
     )
     ax.tick_params(colors="#8b95a5")
     ax.grid(alpha=0.1, color="#232830")
-    ax.margins(x=0.15, y=0.2)   # espacio para las etiquetas del borde (leyenda va en HTML abajo)
+
+    # Leyenda
+    handle_estado = mpatches.Patch(color=color, label=ui["etiqueta"])
+    handle_ancla = mlines.Line2D(
+        [], [], marker="o", color="w",
+        markerfacecolor="white", markeredgecolor="#3498db",
+        markersize=10, markeredgewidth=2.5, label="Ancla geográfica",
+    )
+    ax.legend(handles=[handle_estado, handle_ancla], loc="lower right", fontsize=8,
+              facecolor="#13171d", edgecolor="#232830", labelcolor="#e8ecf1")
     plt.tight_layout()
 
     buf = io.BytesIO()
@@ -398,20 +397,37 @@ def _mapa_estatico(recorrido: list[dict], puntos: list[dict], estado: str) -> No
     )
 
 
-def mostrar_mapa(recorrido: list[dict], puntos: list[dict], estado: str) -> None:
+def mostrar_mapa(anclas: list[dict], nodos: list[dict], estado: str) -> None:
     with st.spinner("Verificando conectividad para mapa interactivo..."):
         hay_red = check_red(timeout=3)
 
     if hay_red:
         try:
-            _mapa_folium(recorrido, puntos, estado)
+            _mapa_folium(anclas, nodos, estado)
         except Exception as exc:
             st.warning(f"Mapa interactivo no disponible ({exc}). Mostrando fallback estático.")
-            _mapa_estatico(recorrido, puntos, estado)
+            _mapa_estatico(anclas, nodos, estado)
     else:
         st.info("Sin conexión a internet detectada. Mostrando mapa estático.")
-        _mapa_estatico(recorrido, puntos, estado)
+        _mapa_estatico(anclas, nodos, estado)
     st.markdown(_leyenda_mapa_html(estado), unsafe_allow_html=True)
+
+
+def _leyenda_mapa_html(estado: str) -> str:
+    """Leyenda del mapa (sirve para el interactivo y el estático)."""
+    color = ESTADO_UI.get(estado, ESTADO_UI["NORMAL"])["color"]
+
+    def item(css: str, texto: str) -> str:
+        return (f'<span><span style="display:inline-block;width:12px;height:12px;{css};'
+                f'vertical-align:middle"></span> {texto}</span>')
+
+    return (
+        '<div class="cl-leyenda" style="display:flex;gap:16px;font-size:12px;'
+        'color:var(--cl-muted);margin-top:6px">'
+        + item(f"background:{color};border-radius:50%", "Nodo de monitoreo ilustrativo (color = estado actual)")
+        + item("background:#3498db;height:3px;border-radius:2px", "Recorrido de la quebrada (alto → bajo)")
+        + "</div>"
+    )
 
 
 # ── helpers de Vista Pública ──────────────────────────────────────────────────
@@ -653,13 +669,14 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
     # 3. Mapa a ancho completo
     with st.container(border=True, key="card-mapa"):
         st.subheader("Mapa de la quebrada y sus puntos de monitoreo")
-        mostrar_mapa(RECORRIDO, puntos_piloto(), estado_actual)
+        nodos = interpolar_nodos(ANCLAS, N_NODOS)
+        mostrar_mapa(ANCLAS, nodos, estado_actual)
         st.caption(
-            "Piloto de la siguiente fase: 1 pluviómetro en la cuenca alta, 3 nodos en el "
-            "cauce del tramo medio cada ~500 m (el del medio con cámara) y 1 gateway en "
-            "una sede comunitaria. Aún no están instalados. Recorrido esquemático y "
-            "posiciones ilustrativas, no GPS de campo: la ubicación real se define con "
-            "visita de campo."
+            "Recorrido de la quebrada de la parte alta a la baja. Posiciones "
+            "ilustrativas, no son GPS de campo. El piloto de la siguiente fase es "
+            "1 pluviómetro en la cuenca alta, 3 nodos en el cauce del tramo medio "
+            "(el del medio con cámara) y 1 gateway en una sede comunitaria; su "
+            "ubicación exacta se define con visita de campo."
         )
 
     # 4. Lluvia acumulada: 3 tarjetas con _tarjeta_html en grid
@@ -1206,8 +1223,8 @@ _GUIA_FAQ = [
     {
         "cat": "Plataforma",
         "q": "¿Los puntos del mapa son donde irán los sensores?",
-        "simple": "Muestran el piloto propuesto, pero en posiciones ilustrativas: un pluviómetro arriba, en el Parque Arví, y tres nodos en el tramo medio con un gateway en una sede comunitaria. La ubicación exacta se define con visita de campo.",
-        "tecnico": "Piloto de la cédula: 1 pluviómetro en la cuenca alta, 3 nodos en el cauce del tramo medio cada ~500 m (el del medio con cámara) y 1 gateway. El nodo del medio se centra en la zona de la obra de \"Mi Río, Mis Quebradas\" (Cra 48A–49 × Cl 70–71, límite Manrique / Campo Valdés); los otros dos van a ~500 m aguas arriba y aguas abajo. El recorrido de la quebrada es esquemático, no GPS de campo.",
+        "simple": "No, son ilustrativos: representan el recorrido de la quebrada por sus tramos alto, medio y bajo. El piloto de la cédula tiene 1 pluviómetro arriba, 3 nodos en el tramo medio y 1 gateway; la ubicación real se define con visita de campo.",
+        "tecnico": "3 puntos de referencia y 5 nodos interpolados entre ellos, sin coordenadas GPS de campo. El piloto (siguiente fase) es 1 pluviómetro en la cuenca alta, 3 nodos de cauce cada ~500 m en el tramo medio (el del medio con cámara) y 1 gateway en una sede comunitaria.",
     },
     {
         "cat": "Plataforma",

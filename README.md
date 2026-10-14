@@ -789,8 +789,7 @@ PRECISION_ALERTA = 0.867925
 CN = 81.1                         # importado de simulate/cuenca_la_honda_params.py (simulador)
 ZONA_HORARIA = "America/Bogota"   # hora y mes del simulador
 
-ESPACIADO_NODOS_M = 500          # piloto: 3 nodos en el tramo medio cada ~500 m
-DESFASE_GATEWAY_M = 200          # gateway en sede comunitaria junto al nodo del medio
+N_NODOS = 5
 
 FEATURE_COLS = [
     "P_basin", "Q_actual",
@@ -800,11 +799,10 @@ FEATURE_COLS = [
     "roll_max_6h", "hora_dia", "mes",
 ]
 
-RECORRIDO = [   # trazo esquemático de la quebrada, de la parte alta a la baja
-    {"nombre": "Cuenca alta (Parque Arví)",              "lat": 6.2804, "lon": -75.5027},
-    {"nombre": "Tramo medio (Manrique / Campo Valdés)",  "lat": 6.2657, "lon": -75.5582},
-    {"nombre": "Jardín Botánico",                        "lat": 6.2694, "lon": -75.5648},
-    {"nombre": "Moravia",                                "lat": 6.2781, "lon": -75.5670},
+ANCLAS = [
+    {"nombre": "Cuenca Alta (Parque Arví)",      "lat": 6.2804, "lon": -75.5027},
+    {"nombre": "Tramo Medio (La Honda)",  "lat": 6.2694, "lon": -75.5648},
+    {"nombre": "Tramo Bajo (Moravia / Montecarlo)", "lat": 6.2781, "lon": -75.5670},
 ]
 ```
 
@@ -812,7 +810,7 @@ RECORRIDO = [   # trazo esquemático de la quebrada, de la parte alta a la baja
 
 * **Estado actual de la quebrada:** semáforo con probabilidad de riesgo y línea de acción según estado (SIN ALERTA / PRECAUCIÓN / ALERTA ROJA).
 * **Lluvia acumulada:** tarjetas con últimas 24 h, 7 días y 30 días (promedio de las estaciones con dato).
-* **Mapa de la quebrada y sus puntos de monitoreo:** el piloto de la cédula, generado por `puntos_piloto()`: 1 pluviómetro en la cuenca alta (Parque Arví), 3 nodos de cauce en el tramo medio cada ~500 m (el del medio con cámara; color = estado actual del semáforo) y 1 gateway en una sede comunitaria junto al nodo del medio. El nodo del medio se centra en la zona de la obra de "Mi Río, Mis Quebradas" (Cra 48A–49 × Cl 70–71, límite Manrique / Campo Valdés); los otros dos, a ~500 m aguas arriba y aguas abajo sobre el recorrido. Recorrido esquemático y posiciones ilustrativas, no GPS de campo. Folium interactivo con popup por equipo / Matplotlib estático sin internet, con la misma leyenda.
+* **Mapa de la quebrada y sus puntos de monitoreo:** 5 nodos ilustrativos interpolados por longitud de arco entre las 3 anclas (Folium interactivo / Matplotlib estático), con leyenda debajo. No es la ubicación del piloto: la cédula define 1 pluviómetro en la cuenca alta, 3 nodos en el tramo medio (el del medio con cámara) y 1 gateway en una sede comunitaria, a ubicar con visita de campo; el pie del mapa y la FAQ lo aclaran.
 * **Historial de los últimos 90 días:** cuadrícula día a día; verde = sin alerta, amarillo = hubo precaución, rojo = hubo alerta roja, **gris = sin lecturas ese día** (menos de 2 estaciones reportando; no significa "sin riesgo"). Al 2026-10-12 hay 22 días grises (25-jul → 20-ago-2026).
 
 ### Vista Operador (JAC)
