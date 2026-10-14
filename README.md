@@ -111,6 +111,7 @@ CentineLA/
 │   ├── 09_gateway_simulado.py              # Gateway simulado en modo streaming
 │   ├── 10_metricas_ternario.py             # Recall/precisión de los umbrales 0.30 / 0.70 (fuente de las métricas del dashboard)
 │   ├── 11_actualizar_ahora.py              # Actualización en vivo desde IDEAM (botón "Actualizar ahora")
+│   ├── reglas_alerta.py                    # Umbrales 0.30/0.70 y regla de lluvia seca (única fuente para dashboard, 09 y 10)
 │   └── models/                             # Trackeado para deploy
 │       └── clf_6h.joblib
 │
@@ -120,7 +121,8 @@ CentineLA/
 │
 └── tests/                                  # Pruebas automáticas (pytest)
     ├── test_append_dedup.py                # Deduplicación de la actualización en vivo
-    └── test_dashboard.py                   # Umbrales, calendario y simulador
+    ├── test_dashboard.py                   # Umbrales, calendario y simulador
+    └── test_reglas_alerta.py               # Regla de lluvia seca y módulo compartido de umbrales
 ```
 
 ---
@@ -533,7 +535,7 @@ Los tres regresores se guardaban como `rf_6h.joblib` (~61 725 KB), `rf_6h_delta.
 
 ### 5.2 RandomForestClassifier — modelo en producción
 
-`simulate/08_clasificador_6h.py` entrena un clasificador binario (`target_6h > p90`). El dashboard (`dashboard/app.py`) interpreta la probabilidad bruta con una escala ternaria:
+`simulate/08_clasificador_6h.py` entrena un clasificador binario (`target_6h > p90`). El dashboard (`dashboard/app.py`) y el gateway aplican a esa probabilidad la regla de lluvia seca (ver más abajo) y luego una escala ternaria, ambas definidas en `simulate/reglas_alerta.py`:
 
 | Estado | Rango de probabilidad | Color |
 |--------|----------------------|-------|
@@ -594,19 +596,35 @@ RandomForestClassifier(
 
 ### Métricas con umbrales ternarios (vigentes, corrida del 13-oct-2026)
 
-Criterio `proba >= umbral`, el mismo que aplican el semáforo del dashboard (`clasificar_estado()`) y el gateway simulado.
+Criterio `proba >= umbral`, el mismo que aplican el semáforo del dashboard y el gateway simulado. Los umbrales y la regla de lluvia seca viven en un solo módulo, `simulate/reglas_alerta.py`, que importan el dashboard, `09` y `10`.
+
+**Sistema (modelo + regla de lluvia seca) — lo que publica el dashboard:**
 
 | Umbral | Recall    | Precisión | Rol en el sistema                |
 |--------|-----------|-----------|----------------------------------|
-| 0.20   | 0.755396  | 0.406977  | referencia binaria anterior      |
-| 0.30   | 0.717026  | 0.493399  | PRECAUCIÓN (amarillo) o más      |
-| 0.70   | 0.551559  | 0.861423  | ALERTA (rojo)                    |
+| 0.20   | 0.752998  | 0.471471  | referencia binaria anterior      |
+| 0.30   | 0.717026  | 0.578337  | PRECAUCIÓN (amarillo) o más      |
+| 0.70   | 0.551559  | 0.874525  | ALERTA (rojo)                    |
 
-**Parámetros de la corrida:** Train 35,316 filas (hasta 2025-07-06 16:00), Test 9,055 filas (2025-07-06 17:00 → 2026-09-30), 417 positivos en test (label_6h=1). Reproducible con `python simulate/10_metricas_ternario.py`.
+**Modelo solo (probabilidad cruda, control):** 0.20 → 0.755396 / 0.406977 · 0.30 → 0.717026 / 0.493399 · 0.70 → 0.551559 / 0.861423.
 
-> Las métricas se calculan sobre el test hasta 2026-09-30; el dataset se extiende con las actualizaciones en vivo, pero la evaluación queda fija. Como cada actualización vuelve a correr el ETL sobre todo el proxy, los decimales pueden moverse ligeramente si cambian datos dentro de la ventana de prueba (por ejemplo, lecturas que el IDEAM publica o corrige tarde): la versión del 03-oct-2026, con criterio `>`, daba 0.497496 de precisión en 0.30 y hoy, con ese mismo criterio, da 0.496667.
+**Parámetros de la corrida:** Train 35,316 filas (hasta 2025-07-06 16:00), Test 9,055 filas (2025-07-06 17:00 → 2026-09-30), 417 positivos en test (label_6h=1). Reproducible con `python simulate/10_metricas_ternario.py`, que imprime las dos tablas.
 
-**Lectura:** el amarillo avisa en más horas de riesgo (72 %) pero la mitad de sus avisos no coinciden con una; el rojo detecta menos (55 %) pero 86 % de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
+> Las métricas se calculan sobre el test hasta 2026-09-30; el dataset se extiende con las actualizaciones en vivo, pero la evaluación queda fija. Como cada actualización vuelve a correr el ETL sobre todo el proxy, los decimales pueden moverse ligeramente si cambian datos dentro de la ventana de prueba (por ejemplo, lecturas que el IDEAM publica o corrige tarde): la versión del 03-oct-2026, con criterio `>` y sin la regla, daba 0.497496 de precisión en 0.30 y hoy, en esas mismas condiciones, da 0.496667.
+
+> **Reentrenar no reproduce el modelo exacto.** `10` evalúa el modelo guardado (`clf_6h.joblib`, entrenado el 01-oct-2026), por eso sus cifras se reproducen. Si hoy se corre `08_clasificador_6h.py`, el modelo resultante no es idéntico (por ejemplo, recall 0.722 en 0.30), porque el dataset cambió un poco desde entonces. Reentrenar implica volver a correr `09` y `10` y actualizar las cifras del dashboard y de esta documentación.
+
+**Lectura:** el amarillo avisa en más horas de riesgo (72 %) y algo más de la mitad de sus avisos (58 %) coinciden con una; el rojo detecta menos (55 %) pero 87.5 % de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
+
+### Regla de lluvia seca
+
+Si en las últimas 24 h no llovió nada (`roll_sum_24h == 0`), la probabilidad se limita a `PROBA_MAX_SIN_LLUVIA = 0.0066`, que es la frecuencia de horas de riesgo entre las 10 303 horas secas del entrenamiento (68 casos). Por qué:
+
+* Sin lluvia previa, para que haya escorrentía a 6 h tendrían que caer unos 12 mm nuevos (la abstracción inicial con CN 81.1). Con las features disponibles, el modelo no tiene cómo anticiparlo.
+* El clasificador, apoyado en `hora_dia` y `mes`, a veces marcaba PRECAUCIÓN o ALERTA en esas horas: 89 avisos en la ventana de prueba, **ninguno acertado**; en todo el histórico, 61 ALERTA y 172 PRECAUCIÓN.
+* Con la regla, en los umbrales del sistema (0.30 y 0.70) no se pierde ninguna detección y la precisión sube de 49.3 % a 57.8 % (amarillo) y de 86.1 % a 87.5 % (rojo). En la referencia binaria 0.20 se pierde 1 de 417.
+* El límite es 0 mm por criterio físico, no ajustado mirando el test (con 1 mm el resultado en test sería un poco mejor, pero sería elegir el umbral con los mismos datos con que se evalúa).
+* Se probaron reentrenamientos (sin `hora_dia`/`mes`, con `min_samples_leaf`, con codificación cíclica): o seguían dando avisos en horas secas o cambiaban el equilibrio hacia más falsas alarmas (precisión del rojo entre 66 % y 79 %, contra 86 % del modelo actual). Por eso se optó por la regla y el modelo no se reentrenó.
 
 **Observación importante sobre el recomendador automático:**
 
@@ -617,7 +635,7 @@ LIMITACION A DOCUMENTAR: ningun umbral del barrido alcanza recall >= 0.85.
 El maximo recall alcanzable en [0.1, 0.5] es 0.816940 con umbral=0.10
 ```
 
-El dashboard expone tres niveles de alerta (NORMAL / PRECAUCIÓN / ALERTA) sobre la misma probabilidad binaria. PRECAUCIÓN (0.30) es la zona de vigilancia: prioriza detectar (recall) y acepta más falsos positivos. ALERTA (0.70) es más exigente que el umbral binario histórico (0.20): prioriza que el rojo sea confiable (precisión). El clasificador sigue siendo **una fuente dentro de una fusión multi-sensor**, no el árbitro único.
+El dashboard expone tres niveles de alerta (NORMAL / PRECAUCIÓN / ALERTA) sobre la misma probabilidad binaria (tras la regla de lluvia seca). PRECAUCIÓN (0.30) es la zona de vigilancia: prioriza detectar (recall) y acepta más falsos positivos. ALERTA (0.70) es más exigente que el umbral binario histórico (0.20): prioriza que el rojo sea confiable (precisión). El clasificador sigue siendo **una fuente dentro de una fusión multi-sensor**, no el árbitro único.
 
 **Feature importance del clasificador (ordenada):**
 
@@ -664,7 +682,7 @@ N_VALIDACION_TS = 500
 
    Si la validación falla, el script **termina con código de salida 1 sin escribir el log**, para que `11_actualizar_ahora.py` reporte el error en vez de mostrar datos viejos como nuevos.
 4. **Inferencia por micro-lotes:** procesa features en lotes de 2048 y predice con `n_jobs=1` para evitar overhead de threading.
-5. **Estados (gateway y dashboard):** `UMBRAL_PRECAUCION = 0.30` y `UMBRAL_ALERTA = 0.70`, con criterio `proba >= umbral`: NORMAL `< 0.30`, PRECAUCIÓN `[0.30, 0.70)`, ALERTA `≥ 0.70`. El log ya se escribe con estos tres estados; el dashboard igual los recalcula desde `proba_alerta` al cargar. (Versiones anteriores del gateway usaban un umbral binario de 0.20 y la etiqueta `ALERTA_6H`.)
+5. **Estados (gateway y dashboard):** importados de `simulate/reglas_alerta.py`: `UMBRAL_PRECAUCION = 0.30` y `UMBRAL_ALERTA = 0.70`, con criterio `proba >= umbral`: NORMAL `< 0.30`, PRECAUCIÓN `[0.30, 0.70)`, ALERTA `≥ 0.70`. Antes de clasificar se aplica la regla de lluvia seca (§5.2). El log guarda la probabilidad del modelo (`proba_modelo`) y la final (`proba_alerta`); el dashboard vuelve a aplicar la regla (es idempotente) y recalcula el estado al cargar. (Versiones anteriores del gateway usaban un umbral binario de 0.20 y la etiqueta `ALERTA_6H`.)
 
 ### Metodología
 
@@ -694,27 +712,28 @@ Proxy cargado: ... | filas=85618
 Dataset batch cargado: ... | filas=44514
 VALIDACION OK: 500 timestamps aleatorios comparados, sin diferencias > 1e-06.
 Filas inferidas (sin NaN en features): 45346
-Total NORMAL: 40979
-Total PRECAUCIÓN: 901
-Total ALERTA: 3466
+Total NORMAL: 41212
+Total PRECAUCIÓN: 729
+Total ALERTA: 3405
+Avisos del modelo anulados por la regla de lluvia seca: 233
 ```
 
-La corrida completa tarda ~16 s en un equipo de escritorio (el botón **Actualizar ahora** le da hasta 120 s).
+La corrida completa tarda ~15 s en un equipo de escritorio (el botón **Actualizar ahora** le da hasta 120 s).
 
 **Distribución anual de estados:**
 
 | Año | NORMAL | PRECAUCIÓN | ALERTA |
 |-----|--------|------------|--------|
-| 2017 | 6 619 | 135 | 686 |
-| 2018 | 7 319 | 173 | 1 031 |
-| 2019 | 3 806 | 87 | 560 |
+| 2017 | 6 645 | 112 | 683 |
+| 2018 | 7 350 | 155 | 1 018 |
+| 2019 | 3 833 | 80 | 540 |
 | 2020 | 1 760 | 6 | 79 |
-| 2021 | 4 599 | 47 | 228 |
-| 2022 | 3 624 | 39 | 161 |
+| 2021 | 4 609 | 43 | 222 |
+| 2022 | 3 629 | 34 | 161 |
 | 2023 | 481 | 6 | 68 |
-| 2024 | 976 | 7 | 119 |
-| 2025 | 6 623 | 173 | 323 |
-| 2026 | 5 172 | 228 | 211 |
+| 2024 | 982 | 7 | 113 |
+| 2025 | 6 677 | 131 | 311 |
+| 2026 | 5 246 | 155 | 210 |
 
 Los años con pocas horas (2020, 2023, 2024) son los de menor disponibilidad de estaciones: solo se infiere cuando hay al menos 2 estaciones y las 18 features completas.
 
@@ -723,7 +742,7 @@ Los años con pocas horas (2020, 2023, 2024) son los de menor disponibilidad de 
 Columnas del log:
 
 ```text
-timestamp,P_basin,Q_actual,Q_lag_1h,roll_sum_24h,hora_dia,mes,proba_alerta,estado
+timestamp,P_basin,Q_actual,Q_lag_1h,roll_sum_24h,hora_dia,mes,proba_modelo,proba_alerta,estado
 ```
 
 ---
@@ -751,12 +770,13 @@ streamlit run dashboard/app.py
 **Constantes clave:**
 
 ```python
-UMBRAL_PRECAUCION = 0.30
+UMBRAL_PRECAUCION = 0.30          # de simulate/reglas_alerta.py, igual que clasificar_estado y ajustar_proba
 UMBRAL_ALERTA = 0.70
-RECALL_PRECAUCION = 0.717026      # métricas con proba >= umbral (10_metricas_ternario.py)
-PRECISION_PRECAUCION = 0.493399
+PROBA_MAX_SIN_LLUVIA = 0.0066     # regla de lluvia seca
+RECALL_PRECAUCION = 0.717026      # métricas del sistema, proba >= umbral (10_metricas_ternario.py)
+PRECISION_PRECAUCION = 0.578337
 RECALL_ALERTA = 0.551559
-PRECISION_ALERTA = 0.861423
+PRECISION_ALERTA = 0.874525
 CN = 81.1                         # importado de simulate/cuenca_la_honda_params.py (simulador)
 ZONA_HORARIA = "America/Bogota"   # hora y mes del simulador
 
@@ -788,7 +808,7 @@ ANCLAS = [
 
 * **Registro de lecturas recientes:** tabla con las últimas 100 filas de `log_gateway_simulado.csv`, la más reciente arriba, con nombres legibles y 2 decimales.
 * **Comportamiento histórico de la cuenca:** gráfico dual-axis `P_basin` / `Q_scs_proxy` con marcadores de PRECAUCIÓN (amarillo) y ALERTA (rojo); selector de rango de fechas.
-* **Confiabilidad del sistema:** 4 métricas (recall/precisión para PRECAUCIÓN y ALERTA) calculadas sobre el split de test cronológico con el mismo criterio `proba >= umbral` del semáforo; fuente `simulate/10_metricas_ternario.py`. No se recalculan en vivo.
+* **Confiabilidad del sistema:** 4 métricas (recall/precisión para PRECAUCIÓN y ALERTA) calculadas sobre el split de test cronológico con el mismo criterio `proba >= umbral` y la misma regla de lluvia seca del semáforo; fuente `simulate/10_metricas_ternario.py`. No se recalculan en vivo.
 * **¿Qué factores pesan más en la alerta?:** feature importance con etiquetas legibles; expander "Detalle técnico" con info del modelo.
 * **Consultar un momento específico:** selector de fecha y hora; muestra estado, probabilidad y features con nombres legibles.
 * **Simular un escenario de lluvia:** 6 controles de lluvia (última hora y acumulados de 3 a 48 h), 3 presets, botón "Simular" y semáforo de resultado (ver §7.2).
@@ -831,6 +851,7 @@ _ESCENARIOS = {
 * Lluvias hora a hora, repartiendo cada tramo de forma pareja: `lag_1h = (r3 − p1)/2`, `lag_3h = (r6 − r3)/3`, `lag_6h = (r12 − r6)/6`, `lag_12h = (r24 − r12)/12`, `lag_24h = (r48 − r24)/24`; `roll_max_6h = max(p1, lag_1h, lag_3h)`.
 * Escorrentía con la misma fórmula SCS-CN del proxy (CN 81.1): `Q_actual = Q(r24)`; `Q_lag_h` usa el acumulado de 24 h estimado hace h horas (`r24 − lluvia de las últimas h + (r48 − r24)·h/24`).
 * `hora_dia` y `mes`: la hora actual **de Colombia** (`America/Bogota`), no la del servidor.
+* A la probabilidad del modelo se le aplica la regla de lluvia seca: si el acumulado de 24 h es 0, el resultado no pasa de 0.66 % y, cuando eso cambia el estado (por ejemplo, abril a las 03:00 el modelo da 0.69), el dashboard explica por qué.
 
 > Con `hora_dia=14, mes=7` (`dashboard/_check_fixes.py`): "Lluvia fuerte sostenida" → 0.985 (**ALERTA**), "Aguacero puntual" → 0.565 (**PRECAUCIÓN**), "Normal" → 0.000 (**NORMAL**). El preset fuerte da ALERTA en cualquier hora y mes (0.94–0.995).
 
@@ -843,9 +864,10 @@ Script de verificación que:
 3. Confirma que el calendario pinta en gris cada día sin lecturas (y que la leyenda incluye "Sin datos").
 4. Confirma que existen `_simulador_modelo()` y `_ESCENARIOS` con 3 escenarios coherentes, y que los presets dan ALERTA / PRECAUCIÓN / NORMAL.
 5. Confirma que acumulados incoherentes se ajustan a la ventana más corta.
-6. Verifica que `vista_operador()` llama al simulador.
+6. Confirma la regla de lluvia seca: sin lluvia en 24 h, ninguna hora/mes supera el tope, y ninguna hora seca del log queda en PRECAUCIÓN o ALERTA.
+7. Verifica que `vista_operador()` llama al simulador.
 
-Las pruebas de `tests/` (pytest) cubren además el criterio `>=` de los umbrales, el calendario, el simulador y la deduplicación de la actualización en vivo.
+Las pruebas de `tests/` (pytest) cubren además el criterio `>=` de los umbrales, la regla de lluvia seca, que `09` y `10` usen el módulo compartido, el calendario, el simulador y la deduplicación de la actualización en vivo.
 
 ---
 
@@ -981,7 +1003,7 @@ Solo se incluyen limitaciones confirmadas por el código o los datos:
 8. **Modelos y datos grandes están parcialmente versionados.** Tras la limpieza del repositorio se trackean solo `proxy_q_la_honda.csv`, `dataset_6h.csv`, `log_gateway_simulado.csv` y `simulate/models/clf_6h.joblib`; los datasets 12h/24h, `filas_baja_calidad.csv`, el modelo baseline y los archivos de `data/raw/` se regeneran o comparten por otro canal.
 9. **Capa física (LoRa, sensores, cámaras) no implementada.** Solo existe el simulador y la arquitectura documentada.
 10. **Prototipo IoT base documentado solo como referencia.** Los issues del sketch Wokwi (credenciales WiFi expuestas, `WiFiMulti`, umbral de temperatura) no se han resuelto en este repo.
-11. **Alertas sin lluvia reciente en algunas horas/meses.** La hora del día y el mes pesan en el modelo (~4.5 % y ~3.5 % de importancia), y en algunas combinaciones marca PRECAUCIÓN o ALERTA con 0 mm de lluvia. En el log histórico hay 61 ALERTA y 172 PRECAUCIÓN entre 14 315 horas con 0 mm en 24 h (1.8 % de todas las ALERTA). Corregirlo requiere reentrenar (por ejemplo, sin `hora_dia`/`mes` o con codificación cíclica) y recalcular todas las métricas.
+11. **El modelo, por sí solo, da avisos en horas sin lluvia; lo corrige una regla, no el modelo.** La hora del día y el mes pesan en el clasificador (~4.5 % y ~3.5 % de importancia), y en algunas combinaciones da PRECAUCIÓN o ALERTA con 0 mm en 24 h (233 avisos en el histórico, ninguno acertado en la ventana de prueba). La regla de lluvia seca (§5.2) los anula sin perder detecciones en 0.30/0.70, pero el modelo sigue sin estar calibrado en esas horas: si se reentrena, conviene evaluar quitar `hora_dia`/`mes` o regularizar los árboles, y revisar si la regla sigue siendo necesaria.
 12. **Huecos de datos.** Solo se infiere cuando hay al menos 2 estaciones y las 18 features completas; si no, no hay lectura. El calendario muestra esos días en gris (22 días entre el 25-jul y el 20-ago-2026).
 13. **Los datos pueden quedar atrasados.** El tablero muestra la última lectura disponible con su fecha ("Datos al …"), pero no alerta por sí solo si esa fecha es vieja; en el plan gratuito, tras "dormirse", vuelve a los CSV del repositorio hasta que alguien pulse **Actualizar ahora**.
 
@@ -1017,12 +1039,12 @@ Para uso bajo otros términos (por ejemplo, comercial): [b41r0nn@gmail.com](mail
 | Sistema de alertas | NORMAL / PRECAUCIÓN / ALERTA | `dashboard/app.py` |
 | Umbral PRECAUCIÓN | 0.30 | `dashboard/app.py` (`UMBRAL_PRECAUCION`) |
 | Umbral ALERTA | 0.70 | `dashboard/app.py` (`UMBRAL_ALERTA`) |
-| Criterio de umbral | `proba >= umbral` | `dashboard/app.py`, `09_gateway_simulado.py`, `10_metricas_ternario.py` |
-| Recall referencia binaria (umbral ≥0.20) | 0.755396 | `simulate/10_metricas_ternario.py` (control) |
-| Precisión referencia binaria (umbral ≥0.20) | 0.406977 | `simulate/10_metricas_ternario.py` (control) |
-| Recall PRECAUCIÓN (umbral ≥0.30) | 0.717026 (~71.7 %) | `simulate/10_metricas_ternario.py` |
-| Precisión PRECAUCIÓN (umbral ≥0.30) | 0.493399 (~49.3 %) | `simulate/10_metricas_ternario.py` |
-| Recall ALERTA (umbral ≥0.70) | 0.551559 (~55.2 %) | `simulate/10_metricas_ternario.py` |
-| Precisión ALERTA (umbral ≥0.70) | 0.861423 (~86.1 %) | `simulate/10_metricas_ternario.py` |
+| Criterio de umbral | `proba >= umbral` | `simulate/reglas_alerta.py` (lo usan dashboard, `09` y `10`) |
+| Regla de lluvia seca | 24 h = 0 mm → proba ≤ 0.0066 | `simulate/reglas_alerta.py` |
+| Recall / precisión del modelo solo (umbral ≥0.20, control) | 0.755396 / 0.406977 | `simulate/10_metricas_ternario.py` |
+| Recall PRECAUCIÓN (umbral ≥0.30, sistema) | 0.717026 (~71.7 %) | `simulate/10_metricas_ternario.py` |
+| Precisión PRECAUCIÓN (umbral ≥0.30, sistema) | 0.578337 (~57.8 %) | `simulate/10_metricas_ternario.py` |
+| Recall ALERTA (umbral ≥0.70, sistema) | 0.551559 (~55.2 %) | `simulate/10_metricas_ternario.py` |
+| Precisión ALERTA (umbral ≥0.70, sistema) | 0.874525 (~87.5 %) | `simulate/10_metricas_ternario.py` |
 | Gateway validación | 500 timestamps, ε=1e-6 | `09_gateway_simulado.py` |
-| Estados del log (NORMAL / PRECAUCIÓN / ALERTA) | 40 979 / 901 / 3 466 (45 346 horas, datos al 2026-10-07) | `09_gateway_simulado.py` |
+| Estados del log (NORMAL / PRECAUCIÓN / ALERTA) | 41 212 / 729 / 3 405 (45 346 horas, datos al 2026-10-07) | `09_gateway_simulado.py` |

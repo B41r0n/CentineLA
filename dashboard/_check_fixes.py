@@ -79,6 +79,22 @@ assert ajustado and x_inc["roll_sum_12h"] == 30 and x_inc["roll_sum_48h"] == 30,
     "acumulados incoherentes deben ajustarse a la ventana más corta"
 print("  ajuste de acumulados incoherentes: OK")
 
+print("\n=== FIX 4 - Regla de lluvia seca ===")
+seco = {k: 0.0 for k, _, _ in app._SIM_CONTROLES}
+max_seco = 0.0
+for mes in range(1, 13):
+    for h in range(24):
+        x, _ = app.features_simulador(seco, pd.Timestamp(2026, mes, 1, h))
+        p = app.ajustar_proba(float(modelo.predict_proba(pd.DataFrame([x])[app.FEATURE_COLS])[0, 1]), x["roll_sum_24h"])
+        max_seco = max(max_seco, p)
+print(f"  sin lluvia, peor hora/mes: proba={max_seco:.4f} (tope {app.PROBA_MAX_SIN_LLUVIA})")
+assert max_seco <= app.PROBA_MAX_SIN_LLUVIA, "sin lluvia en 24 h la probabilidad no debe superar el tope"
+log_app = app.cargar_log()
+secas_con_aviso = log_app[(log_app["roll_sum_24h"] == 0) & (log_app["estado"] != "NORMAL")]
+print(f"  horas secas con aviso en el log: {len(secas_con_aviso)}")
+assert secas_con_aviso.empty, "ninguna hora con 0 mm en 24 h debe quedar en PRECAUCIÓN/ALERTA"
+print("  OK")
+
 print("\n=== VISTA OPERADOR tiene _simulador_modelo ===")
 src_op = inspect.getsource(app.vista_operador)
 assert "_simulador_modelo" in src_op, "vista_operador debe llamar _simulador_modelo"

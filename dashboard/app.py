@@ -56,11 +56,18 @@ _params_mod = importlib.util.module_from_spec(_params_spec)
 _params_spec.loader.exec_module(_params_mod)
 CN = _params_mod.CN
 
-ZONA_HORARIA = "America/Bogota"
+# Umbrales ternarios y regla de lluvia seca: única fuente compartida con 09 y 10
+_REGLAS_PATH = BASE_DIR / "simulate" / "reglas_alerta.py"
+_reglas_spec = importlib.util.spec_from_file_location("reglas_alerta", _REGLAS_PATH)
+_reglas = importlib.util.module_from_spec(_reglas_spec)
+_reglas_spec.loader.exec_module(_reglas)
+UMBRAL_PRECAUCION = _reglas.UMBRAL_PRECAUCION
+UMBRAL_ALERTA = _reglas.UMBRAL_ALERTA
+PROBA_MAX_SIN_LLUVIA = _reglas.PROBA_MAX_SIN_LLUVIA
+clasificar_estado = _reglas.clasificar_estado
+ajustar_proba = _reglas.ajustar_proba
 
-# ── umbrales ternarios del sistema de alertas ──
-UMBRAL_PRECAUCION = 0.30
-UMBRAL_ALERTA = 0.70
+ZONA_HORARIA = "America/Bogota"
 
 # ── tokens de diseño por estado (única fuente) ──
 ESTADO_UI = {
@@ -87,14 +94,6 @@ ESTADO_UI = {
     },
 }
 
-
-def clasificar_estado(proba: float) -> str:
-    """Sistema ternario de alertas."""
-    if proba >= UMBRAL_ALERTA:
-        return "ALERTA"
-    elif proba >= UMBRAL_PRECAUCION:
-        return "PRECAUCIÓN"
-    return "NORMAL"
 
 # ── anchors geográficos de la quebrada (dato-duro AMVA + referencia visual) ─
 ANCLAS = [
@@ -134,6 +133,7 @@ NOMBRES_LEGIBLES = {
     "roll_max_6h": "Pico de lluvia en 6 h",
     "hora_dia": "Hora del día",
     "mes": "Mes",
+    "proba_modelo": "Probabilidad del modelo (antes de la regla)",
     "proba_alerta": "Probabilidad de riesgo",
     "estado": "Estado de alerta",
 }
@@ -212,7 +212,9 @@ def _compacto(html: str) -> str:
 def cargar_log() -> pd.DataFrame:
     df = pd.read_csv(LOG_PATH, parse_dates=["timestamp"])
     df = df.sort_values("timestamp").reset_index(drop=True)
-    # Normalizar a sistema ternario (el log histórico puede venir binario)
+    # Regla de lluvia seca (idempotente: el gateway ya la aplica) y estado ternario
+    # recalculado, por si el log viene de una versión anterior del gateway.
+    df["proba_alerta"] = ajustar_proba(df["proba_alerta"], df["roll_sum_24h"])
     df["estado"] = df["proba_alerta"].apply(clasificar_estado)
     return df
 
@@ -822,14 +824,15 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
             "Hora de riesgo = el proxy hidrológico (SCS-CN) estima escorrentía hacia la "
             "quebrada en las 6 h siguientes; no son crecientes medidas en campo. "
             "Calculado sobre el periodo de prueba (2025-07-06 → 2026-09-30, 9,055 horas), "
-            "que el modelo no vio al entrenar. No se recalcula en vivo — "
+            "que el modelo no vio al entrenar. Incluye la regla de lluvia seca (sin lluvia "
+            "en 24 h no hay aviso). No se recalcula en vivo — "
             "fuente: simulate/10_metricas_ternario.py."
         )
-        # Mismo criterio que el semáforo: estado activo si proba >= umbral.
+        # Métricas del sistema (modelo + regla de lluvia seca), criterio proba >= umbral.
         RECALL_PRECAUCION = 0.717026
-        PRECISION_PRECAUCION = 0.493399
+        PRECISION_PRECAUCION = 0.578337
         RECALL_ALERTA = 0.551559
-        PRECISION_ALERTA = 0.861423
+        PRECISION_ALERTA = 0.874525
 
         c1, c2 = st.columns(2)
         with c1:
@@ -1033,7 +1036,7 @@ _GUIA_STATS = [
     {"valor": "2", "etiqueta": "estaciones IDEAM activas"},
     {"valor": "44,371", "etiqueta": "horas útiles (2016 – 30-sep-2026)"},
     {"valor": "71.7%", "etiqueta": "detección en amarillo"},
-    {"valor": "86.1%", "etiqueta": "precisión en rojo"},
+    {"valor": "87.5%", "etiqueta": "precisión en rojo"},
     {"valor": "18", "etiqueta": "variables del modelo"},
 ]
 
@@ -1157,7 +1160,7 @@ _GUIA_FAQ = [
         "cat": "Datos y modelo",
         "q": "¿Qué tan confiable es?",
         "simple": "En pruebas con datos que el modelo no vio al entrenar, el nivel amarillo detecta cerca de 7 de cada 10 situaciones de riesgo y, cuando se activa el rojo, acierta en más de 8 de cada 10 veces.",
-        "tecnico": "Validación cronológica 80/20 (corte 2025-07-06 16:00; prueba hasta 2026-09-30). Umbral ≥0.30: recall 71.7% · precisión 49.3%. Umbral ≥0.70: recall 55.2% · precisión 86.1%. Las métricas son frente al proxy hidrológico.",
+        "tecnico": "Validación cronológica 80/20 (corte 2025-07-06 16:00; prueba hasta 2026-09-30). Umbral ≥0.30: recall 71.7% · precisión 57.8%. Umbral ≥0.70: recall 55.2% · precisión 87.5%. Incluyen la regla de lluvia seca (sin lluvia en 24 h no hay aviso). Las métricas son frente al proxy hidrológico.",
     },
     {
         "cat": "Datos y modelo",
@@ -1169,7 +1172,7 @@ _GUIA_FAQ = [
         "cat": "Datos y modelo",
         "q": "¿Por qué puede marcar alerta alta solo con lluvia?",
         "simple": "Porque hoy CentineLA mide riesgo por lluvia: con unos 22 mm acumulados en un día ya se supera casi al doble el umbral en que el terreno empieza a escurrir. Los sensores en el cauce, de la siguiente fase, servirán para confirmar el nivel real antes de escalar una alerta.",
-        "tecnico": "El diseño completo exige al menos 2 señales críticas simultáneas (modelo + sensor físico de nivel o turbidez) para una alerta roja confirmada. Las variables más influyentes: lluvia acumulada 24 h (20.6%) y 48 h (12.8%). La probabilidad refleja la confianza dentro de la definición del modelo, no una medición del nivel del agua. Limitación conocida: como la hora y el mes también pesan, en algunas combinaciones el modelo marca precaución o alerta sin lluvia reciente (en el histórico, 61 alertas y 172 precauciones de 14,315 horas con 0 mm en 24 h).",
+        "tecnico": "El diseño completo exige al menos 2 señales críticas simultáneas (modelo + sensor físico de nivel o turbidez) para una alerta roja confirmada. Las variables más influyentes: lluvia acumulada 24 h (20.6%) y 48 h (12.8%). La probabilidad refleja la confianza dentro de la definición del modelo, no una medición del nivel del agua. Sin lluvia en las últimas 24 h el sistema no avisa: el modelo, apoyado en la hora y el mes, a veces daba precaución o alerta en horas secas (89 avisos en el periodo de prueba, ninguno acertado), así que en esas horas la probabilidad se limita a la frecuencia histórica (0.66%).",
     },
     {
         "cat": "Datos y modelo",
@@ -1243,7 +1246,8 @@ def _simulador_modelo(modelo) -> None:
 
     if st.button("Simular", type="primary"):
         x_df = pd.DataFrame([x_vec])[FEATURE_COLS]
-        proba = float(modelo.predict_proba(x_df)[0, 1])
+        proba_modelo = float(modelo.predict_proba(x_df)[0, 1])
+        proba = ajustar_proba(proba_modelo, x_vec["roll_sum_24h"])
         estado_pred = clasificar_estado(proba)
         st.markdown(
             _estado_semaforo_html(estado_pred, proba),
@@ -1254,6 +1258,13 @@ def _simulador_modelo(modelo) -> None:
                 "Algunos acumulados eran menores que una ventana más corta (por ejemplo, "
                 "menos lluvia en 24 h que en 6 h). Para simular se igualaron al valor "
                 "de la ventana más corta."
+            )
+        if clasificar_estado(proba_modelo) != estado_pred:
+            st.info(
+                f"Sin lluvia en las últimas 24 h: el modelo daba {proba_modelo:.1%}, pero sin "
+                "lluvia previa harían falta ~12 mm nuevos en 6 h para que haya riesgo, algo que "
+                "el modelo no puede anticipar. Se usa la frecuencia histórica de esas horas "
+                f"({PROBA_MAX_SIN_LLUVIA:.2%})."
             )
         st.caption(
             f"Probabilidad calculada: {proba:.1%}. "

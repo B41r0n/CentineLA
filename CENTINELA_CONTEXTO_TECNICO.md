@@ -82,7 +82,7 @@ CUENCA ALTA                    TRAMO MEDIO                  TRAMO BAJO
 - **Target de clasificación:** `label_6h = 1` si `target_6h > p90(train)`. p90 calculado **solo sobre train**, nunca sobre test. Con distribución actual p90=0.0, equivale a "hora con escorrentía >0".
 - **Algoritmo en producción:** `RandomForestClassifier(n_estimators=200, random_state=42, class_weight='balanced')`. `class_weight='balanced'` es la corrección estándar de sklearn para desbalance.
 - **Umbral binario histórico (no vigente):** 0.20 sobre `predict_proba`. Recall=0.74, FP/TP≈1.5:1 (corrida del 27-jul-2026). El gateway actual (`09_gateway_simulado.py`) ya usa la escala ternaria.
-- **Sistema de alertas del dashboard (ternario, desde 2026-10):** NORMAL `proba < 0.30` (verde #2ecc71), PRECAUCIÓN `0.30 ≤ proba < 0.70` (amarillo #f39c12), ALERTA `proba ≥ 0.70` (rojo #e74c3c) — ver `clasificar_estado()` y `UMBRAL_PRECAUCION`/`UMBRAL_ALERTA` en `dashboard/app.py`. Criterio `proba >= umbral` en dashboard, gateway y `10_metricas_ternario.py`. El gateway escribe los 3 estados en el log; el dashboard igual los recalcula desde `proba_alerta` al cargar (logs antiguos traían `ALERTA_6H`/`NORMAL`). El clasificador sigue siendo una fuente dentro de la fusión multi-sensor (regla: ≥2 fuentes críticas = rojo), no árbitro único.
+- **Sistema de alertas del dashboard (ternario, desde 2026-10):** NORMAL `proba < 0.30` (verde #2ecc71), PRECAUCIÓN `0.30 ≤ proba < 0.70` (amarillo #f39c12), ALERTA `proba ≥ 0.70` (rojo #e74c3c) — ver `clasificar_estado()` y `UMBRAL_PRECAUCION`/`UMBRAL_ALERTA` en `dashboard/app.py`. Criterio `proba >= umbral` en dashboard, gateway y `10_metricas_ternario.py`, todos importando `simulate/reglas_alerta.py`. Antes de clasificar se aplica la **regla de lluvia seca**: si `roll_sum_24h == 0`, la probabilidad se limita a 0.0066 (frecuencia de riesgo en las horas secas del train, 68/10,303), porque sin lluvia previa el modelo no puede anticipar los ~12 mm necesarios y, apoyado en hora/mes, daba avisos falsos (89 en test, 0 aciertos). El gateway escribe los 3 estados en el log; el dashboard igual los recalcula desde `proba_alerta` al cargar (logs antiguos traían `ALERTA_6H`/`NORMAL`). El clasificador sigue siendo una fuente dentro de la fusión multi-sensor (regla: ≥2 fuentes críticas = rojo), no árbitro único.
 - **Techo real de recall:** ~0.82 con umbral 0.10. Ningún umbral en [0.1, 0.5] alcanza recall ≥ 0.85 — limitación conocida, mitigada por diseño multi-fuente.
 - **Split:** cronológico con corte fijo. Train hasta 2025-07-06 16:00 (35,316 filas, 79.6%), test desde 2025-07-06 17:00 hasta 2026-09-30 (9,055 filas, 20.4%). Nunca aleatorio.
 - **Horizonte priorizado:** 6h (cuenca de ladera, tiempo de concentración corto; deadline oct-2026). Datasets 12h/24h generados pero no entrenados con el mismo rigor.
@@ -164,11 +164,12 @@ CentineLA/
     09_gateway_simulado.py       # gateway streaming con validación batch vs stream (sale con código 1 si falla)
     10_metricas_ternario.py      # recall/precisión de los umbrales 0.30/0.70 (fuente de las métricas del dashboard)
     11_actualizar_ahora.py       # actualización en vivo desde IDEAM: 04 → 06 → 09 + copia SQLite centinela.db
+    reglas_alerta.py             # umbrales 0.30/0.70 + regla de lluvia seca (única fuente para dashboard, 09 y 10)
     models/                      # trackeado: clf_6h.joblib; rf_6h*.joblib y clf_6h_baseline_*.joblib ignorados
   dashboard/
     app.py                       # Streamlit — Fase 3 CERRADA
     _check_fixes.py              # verificaciones del dashboard
-  tests/                         # pytest: deduplicación en vivo, umbrales, calendario, simulador
+  tests/                         # pytest: deduplicación en vivo, umbrales, regla de lluvia seca, calendario, simulador
 ```
 
 ## Seguridad y gestión de secretos
@@ -238,28 +239,31 @@ Causa: ~8 % de horas con escorrentía >0 (366 en el test de entonces, 4.7 %). El
 | 0.15 | 0.781 | 0.311 | 80 | 633 | 286 |
 | 0.10 | 0.817 | 0.257 | 67 | 865 | 299 |
 
-**Métricas con umbrales ternarios (vigentes, corrida del 13-oct-2026, criterio `proba >= umbral`):**
+**Métricas con umbrales ternarios (vigentes, corrida del 13-oct-2026, criterio `proba >= umbral`, sistema = modelo + regla de lluvia seca):**
 
 | Umbral | Recall    | Precisión | Rol en el sistema                |
 |--------|-----------|-----------|----------------------------------|
-| 0.20   | 0.755396  | 0.406977  | referencia binaria anterior      |
-| 0.30   | 0.717026  | 0.493399  | PRECAUCIÓN (amarillo) o más      |
-| 0.70   | 0.551559  | 0.861423  | ALERTA (rojo)                    |
+| 0.20   | 0.752998  | 0.471471  | referencia binaria anterior      |
+| 0.30   | 0.717026  | 0.578337  | PRECAUCIÓN (amarillo) o más      |
+| 0.70   | 0.551559  | 0.874525  | ALERTA (rojo)                    |
+
+Modelo solo (control): 0.20 → 0.755396 / 0.406977 · 0.30 → 0.717026 / 0.493399 · 0.70 → 0.551559 / 0.861423.
 
 El barrido del 27-jul-2026 de arriba usaba `proba > umbral`; la versión del 03-oct-2026 también (0.714628 / 0.497496 en 0.30).
 
 **Parámetros:** Train 35,316 filas (hasta 2025-07-06 16:00), Test 9,055 filas (2025-07-06 17:00 → 2026-09-30), 417 positivos en test. Reproducible con `python simulate/10_metricas_ternario.py`.
 
-**Lectura:** el amarillo avisa en más horas de riesgo (72%) pero la mitad de sus avisos no coinciden con una; el rojo detecta menos (55%) pero 86% de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
+**Lectura:** el amarillo avisa en más horas de riesgo (72%) y 58% de sus avisos coinciden con una; el rojo detecta menos (55%) pero 87.5% de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
 
 Techo real de recall aislado: ~0.82. Limitación mitigada por fusión multi-fuente en la arquitectura.
 
 ## Fase 2 — Gateway simulado
 
 - `simulate/09_gateway_simulado.py` valida features streaming vs batch con 500 timestamps aleatorios, epsilon 1e-6 — **validación pasó limpia**.
-- Inferencia sobre serie completa (datos al 2026-10-07): 45,346 horas → 40,979 NORMAL / 901 PRECAUCIÓN / 3,466 ALERTA (log ternario, ~16 s por corrida). Versiones anteriores del log eran binarias (4,947 `ALERTA_6H` / 38,918 `NORMAL`).
+- Inferencia sobre serie completa (datos al 2026-10-07): 45,346 horas → 41,212 NORMAL / 729 PRECAUCIÓN / 3,405 ALERTA (log ternario con regla de lluvia seca, ~15 s por corrida; el log guarda `proba_modelo` y `proba_alerta`). Versiones anteriores del log eran binarias (4,947 `ALERTA_6H` / 38,918 `NORMAL`).
 - Si la validación batch vs stream falla, `09` sale con código 1 sin escribir el log, para que `11_actualizar_ahora.py` reporte el error.
-- Limitación conocida: con 0 mm en 24 h el modelo a veces marca PRECAUCIÓN/ALERTA por `hora_dia`/`mes` (61 ALERTA y 172 PRECAUCIÓN en 14,315 horas secas del log). Corregirlo exige reentrenar.
+- Con 0 mm en 24 h el modelo solo a veces marcaba PRECAUCIÓN/ALERTA por `hora_dia`/`mes` (61 ALERTA y 172 PRECAUCIÓN en el histórico). La regla de lluvia seca los anula sin perder detecciones en 0.30/0.70. Se evaluaron reentrenamientos (sin hora/mes, `min_samples_leaf`, codificación cíclica) y se descartaron: bajaban la precisión del rojo a 66–79 %.
+- Reentrenar con `08` hoy no reproduce exactamente `clf_6h.joblib` (01-oct-2026) porque el dataset cambió un poco; si se reentrena, hay que correr `09` y `10` y actualizar las cifras del dashboard, README y este documento.
 - Ventana de test real (2025-07-06 → 2026-07-09): 693 alertas en 7883 filas (8.8%), consistente con barrido de umbrales (~680 esperado para umbral 0.20) **(corrida previa, al 13-sep-2026)**.
 - Ventana de test actual (2025-07-06 → 2026-09-30): 9,055 filas, 417 positivos (label_6h=1).
 - Implementación: micro-lotes de 2048 filas con `n_jobs=1` en inferencia para evitar overhead de threading.

@@ -5,7 +5,8 @@ Fase 2, paso 9 - Gateway simulado en modo streaming.
 
 Objetivo:
     Simular un gateway RPi4 procesando la serie fila por fila (orden cronologico),
-    calculando features sin fuga de datos y aplicando el clasificador 6h.
+    calculando features sin fuga de datos y aplicando el clasificador 6h con las
+    reglas de reglas_alerta.py (escala ternaria + regla de lluvia seca).
 
 Entradas:
     data/processed/proxy_q_la_honda.csv
@@ -28,6 +29,13 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from reglas_alerta import (
+    UMBRAL_ALERTA,
+    UMBRAL_PRECAUCION,
+    ajustar_proba,
+    clasificar_estado,
+)
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PROCESSED_DIR = BASE_DIR / "data" / "processed"
@@ -41,17 +49,6 @@ LOG_PATH = DATA_PROCESSED_DIR / "log_gateway_simulado.csv"
 LOW_QUALITY_MIN_ESTACIONES = 2
 EPSILON = 1e-6
 N_VALIDACION_TS = 500
-UMBRAL_PRECAUCION = 0.30
-UMBRAL_ALERTA = 0.70
-
-
-def clasificar_estado_ternario(proba: float) -> str:
-    """Sistema ternario de alertas: NORMAL / PRECAUCIÓN / ALERTA."""
-    if proba >= UMBRAL_ALERTA:
-        return "ALERTA"
-    elif proba >= UMBRAL_PRECAUCION:
-        return "PRECAUCIÓN"
-    return "NORMAL"
 
 
 def cargar_entradas():
@@ -215,10 +212,11 @@ def _procesar_lote(modelo, feature_cols, lote_x, lote_meta, logs):
         return
 
     x_df = pd.DataFrame(lote_x, columns=feature_cols)
-    probas = modelo.predict_proba(x_df)[:, 1]
+    probas_modelo = modelo.predict_proba(x_df)[:, 1]
+    probas = ajustar_proba(probas_modelo, x_df["roll_sum_24h"].to_numpy())
 
-    for meta, proba in zip(lote_meta, probas):
-        estado = clasificar_estado_ternario(float(proba))
+    for meta, proba_modelo, proba in zip(lote_meta, probas_modelo, probas):
+        estado = clasificar_estado(float(proba))
         registro = {
             "timestamp": meta["timestamp"],
             "P_basin": meta["P_basin"],
@@ -227,6 +225,7 @@ def _procesar_lote(modelo, feature_cols, lote_x, lote_meta, logs):
             "roll_sum_24h": meta["roll_sum_24h"],
             "hora_dia": meta["hora_dia"],
             "mes": meta["mes"],
+            "proba_modelo": float(proba_modelo),
             "proba_alerta": float(proba),
             "estado": estado,
         }
@@ -299,7 +298,7 @@ def main():
 
     print(
         f"\n=== PASO 3 - Inferencia streaming (PRECAUCIÓN >= {UMBRAL_PRECAUCION:.2f}, "
-        f"ALERTA >= {UMBRAL_ALERTA:.2f}) ==="
+        f"ALERTA >= {UMBRAL_ALERTA:.2f}, regla de lluvia seca) ==="
     )
     log = simular_gateway(stream_features, modelo, feature_cols)
     if log.empty:
@@ -314,6 +313,8 @@ def main():
 
     for estado in ("NORMAL", "PRECAUCIÓN", "ALERTA"):
         print(f"Total {estado}: {int((log['estado'] == estado).sum())}")
+    cambiadas = (log["proba_modelo"] >= UMBRAL_PRECAUCION) & (log["proba_alerta"] < UMBRAL_PRECAUCION)
+    print(f"Avisos del modelo anulados por la regla de lluvia seca: {int(cambiadas.sum())}")
 
     dist_anual = (
         log.assign(anio=log["timestamp"].dt.year)
