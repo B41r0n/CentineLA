@@ -112,7 +112,6 @@ def pull_dataset(
     codigo_estacion,
     campo_codigo,
     meta_estacion=None,
-    limit=500000,
     registrar_gaps=False,
 ):
     page_size = 5000
@@ -325,6 +324,7 @@ def main():
 
     for codigo in codigos:
         print(f"\n=== Estación {codigo} ===")
+        rangos_fallidos = []
 
         meta = obtener_meta_catalogo(client, codigo)
         if meta:
@@ -343,9 +343,11 @@ def main():
             )
             print(f"  Histórico: {len(df_hist)} filas")
             if not df_hist.empty:
-                dedup_cols = [campo_hist, "fechaobservacion", "codigosensor", "valorobservado"]
+                # Misma clave que la actualización en vivo (11_actualizar_ahora.py):
+                # una lectura por estación + sensor + timestamp (la última publicada).
+                dedup_cols = [campo_hist, "fechaobservacion", "codigosensor"]
                 if all(col in df_hist.columns for col in dedup_cols):
-                    df_hist = df_hist.drop_duplicates(subset=dedup_cols)
+                    df_hist = df_hist.drop_duplicates(subset=dedup_cols, keep="last")
                 else:
                     print(f"  Aviso: no pude aplicar dedup por columnas {dedup_cols} porque faltan columnas en el resultado.")
 
@@ -368,7 +370,7 @@ def main():
             else:
                 print(
                     "  Sin filas históricas para esta estación en s54a-sgyg. "
-                    "No se guarda CSV vacío; revisá si existe histórico real para este código."
+                    "No se guarda CSV vacío; revisa si existe histórico real para este código."
                 )
 
         if campo_rt:
@@ -385,7 +387,11 @@ def main():
                     "Si el nodo existe en catálogo, puede que no publique a este dataset."
                 )
 
-        if 'rangos_fallidos' in locals() and rangos_fallidos:
+        gaps_out = DATA_RAW_DIR / f"GAPS_{codigo}.txt"
+        if campo_hist and not rangos_fallidos:
+            # Descarga histórica completa: borrar el registro de huecos de una corrida anterior
+            gaps_out.unlink(missing_ok=True)
+        elif rangos_fallidos:
             print("\n⚠️  ADVERTENCIA — DATOS INCOMPLETOS para esta estación:")
             print("Los siguientes rangos NO se pudieron descargar tras reintentos:")
             for rango in rangos_fallidos:
@@ -393,7 +399,6 @@ def main():
             print("El CSV guardado NO cubre estos períodos. Revisar manualmente o reintentar más tarde.")
 
             DATA_RAW_DIR.mkdir(parents=True, exist_ok=True)
-            gaps_out = DATA_RAW_DIR / f"GAPS_{codigo}.txt"
             with open(gaps_out, "w", encoding="utf-8") as f:
                 for rango in rangos_fallidos:
                     f.write(f"- {rango}\n")

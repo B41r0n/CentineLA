@@ -9,8 +9,10 @@ Entrada principal:
 Entrada para baseline de persistencia:
     data/processed/proxy_q_la_honda.csv
 
-Salida:
-    simulate/models/rf_6h.joblib
+Salida (no versionadas, ~200 MB en total):
+    simulate/models/rf_6h.joblib            (target absoluto)
+    simulate/models/rf_6h_delta.joblib      (delta residual)
+    simulate/models/rf_6h_weighted.joblib   (sample_weight x20)
 
 Uso:
     python 07_entrenar_modelo_6h.py

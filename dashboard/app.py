@@ -13,6 +13,7 @@ import base64
 import io
 import math
 import os
+import sys
 import textwrap
 import threading
 import time
@@ -33,6 +34,19 @@ MODEL_PATH = BASE_DIR / "simulate" / "models" / "clf_6h.joblib"
 # Cooldown para el botón "Actualizar ahora" (segundos)
 COOLDOWN_OK_S = 600
 COOLDOWN_ERR_S = 60
+
+# Métricas publicadas en "Confiabilidad del sistema": sistema (modelo + regla de lluvia
+# seca), criterio proba >= umbral, test 2025-07-06 → 2026-09-30.
+# Fuente: simulate/10_metricas_ternario.py (no se recalculan en vivo).
+RECALL_PRECAUCION = 0.717026
+PRECISION_PRECAUCION = 0.578337
+RECALL_ALERTA = 0.551559
+PRECISION_ALERTA = 0.874525
+
+_MESES_ES = {
+    "Jan": "ene", "Feb": "feb", "Mar": "mar", "Apr": "abr", "May": "may", "Jun": "jun",
+    "Jul": "jul", "Aug": "ago", "Sep": "sep", "Oct": "oct", "Nov": "nov", "Dec": "dic",
+}
 
 
 @st.cache_resource
@@ -82,8 +96,8 @@ ESTADO_UI = {
         "color": "#f39c12",
         "pill_txt": "#f5b041",
         "soft": "rgba(243,156,18,.14)",
-        "banner": "PRECAUCIÓN — LLUVIAS SOSTENIDAS",
-        "accion": "Lluvias sostenidas detectadas. Mantenerse atentos.",
+        "banner": "PRECAUCIÓN — RIESGO MODERADO",
+        "accion": "La lluvia acumulada podría generar riesgo en las próximas 6 horas. Mantenerse atentos.",
     },
     "ALERTA": {
         "color": "#e74c3c",
@@ -95,7 +109,7 @@ ESTADO_UI = {
 }
 
 
-# ── anchors geográficos de la quebrada (dato-duro AMVA + referencia visual) ─
+# ── anclas geográficas de la quebrada (referencia visual aproximada, no GPS de campo) ─
 ANCLAS = [
     {"nombre": "Cuenca Alta (Parque Arví)", "lat": 6.2804, "lon": -75.5027},
     {"nombre": "Tramo Medio (La Honda)", "lat": 6.2694, "lon": -75.5648},
@@ -191,8 +205,9 @@ def interpolar_nodos(anclas, n_total: int) -> list[dict]:
     return nodos
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def check_red(timeout: int = 3) -> bool:
-    """Verifica conectividad a los tiles de OSM con timeout corto."""
+    """Verifica conectividad a los tiles de OSM con timeout corto (cacheado 5 min)."""
     try:
         import requests
         requests.get("https://tile.openstreetmap.org/0/0/0.png", timeout=timeout)
@@ -201,8 +216,16 @@ def check_red(timeout: int = 3) -> bool:
         return False
 
 
+def _fecha_es(ts, formato: str) -> str:
+    """strftime con abreviaturas de mes en español (independiente del locale)."""
+    texto = ts.strftime(formato)
+    for en, es in _MESES_ES.items():
+        texto = texto.replace(en, es)
+    return texto
+
+
 def _compacto(html: str) -> str:
-    """Elimina líneas en blanco y espacios sobrantes de HTML."""
+    """Elimina las líneas en blanco de un bloque HTML."""
     return "\n".join(l for l in html.split("\n") if l.strip())
 
 
@@ -275,10 +298,7 @@ def _mapa_folium(anclas: list[dict], nodos: list[dict], estado: str) -> None:
         ).add_to(m)
 
     st_folium(m, height=550, use_container_width=True, returned_objects=[])
-    st.caption(
-        "Mapa interactivo (OpenStreetMap, tema oscuro). "
-        "Posiciones de nodos son ilustrativas — no GPS de campo."
-    )
+    st.caption("Mapa interactivo (OpenStreetMap, tema oscuro).")
 
 
 def _mapa_estatico(anclas: list[dict], nodos: list[dict], estado: str) -> None:
@@ -402,10 +422,13 @@ def _gauge_html(proba: float) -> str:
   <div style="width:{w_green}%;background:rgba(46,204,113,.35);border-radius:999px 0 0 999px;"></div>
   <div style="width:{w_yellow}%;background:rgba(243,156,18,.35);"></div>
   <div style="width:{w_red}%;background:rgba(231,76,60,.35);border-radius:0 999px 999px 0;"></div>
-  <div class="cl-mk" style="left:{p*100}%"></div>
+  <div class="mk" style="left:{p*100}%"></div>
 </div>
 <div class="cl-gauge-lbl">
-  <span>0%</span><span>30%</span><span>70%</span><span>100%</span>
+  <span style="left:0%">0%</span>
+  <span style="left:{UMBRAL_PRECAUCION:.0%}">{UMBRAL_PRECAUCION:.0%}</span>
+  <span style="left:{UMBRAL_ALERTA:.0%}">{UMBRAL_ALERTA:.0%}</span>
+  <span style="left:100%">100%</span>
 </div>
 """
 
@@ -571,13 +594,7 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
     ultima = log.iloc[-1]
     estado_actual = str(ultima["estado"])
     proba_actual = float(ultima["proba_alerta"])
-    ultima_ts_str = ultima["timestamp"].strftime("%d-%b-%Y %H:%M").replace(
-        "Jan", "ene"
-    ).replace("Feb", "feb").replace("Mar", "mar").replace("Apr", "abr").replace(
-        "May", "may"
-    ).replace("Jun", "jun").replace("Jul", "jul").replace("Aug", "ago").replace(
-        "Sep", "sep"
-    ).replace("Oct", "oct").replace("Nov", "nov").replace("Dec", "dic")
+    ultima_ts_str = _fecha_es(ultima["timestamp"], "%d-%b-%Y %H:%M")
 
     # 1. Fila de chips con datos reales (ancho completo)
     ult_24h, ult_7d, ult_30d, _ = _lluvia_acumulada(proxy)
@@ -623,13 +640,7 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
                     # probabilidad máxima del día
                     mask_dia = log["timestamp"].dt.date == d
                     proba_max = float(log[mask_dia]["proba_alerta"].max())
-                    fecha_str = d.strftime("%d-%b").replace(
-                        "Jan", "ene"
-                    ).replace("Feb", "feb").replace("Mar", "mar").replace("Apr", "abr").replace(
-                        "May", "may"
-                    ).replace("Jun", "jun").replace("Jul", "jul").replace("Aug", "ago").replace(
-                        "Sep", "sep"
-                    ).replace("Oct", "oct").replace("Nov", "nov").replace("Dec", "dic")
+                    fecha_str = _fecha_es(d, "%d-%b")
                     items_html.append(f"""
 <div class="cl-item">
   <span style="font-size:12px;color:var(--cl-muted)">{fecha_str}</span>
@@ -679,6 +690,8 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
         "precaución. Rojo: hubo alerta. Gris: sin lecturas ese día (menos de 2 "
         "estaciones del IDEAM reportando), por lo que no se sabe el estado."
     )
+
+
 def _estilo_plotly(fig: go.Figure) -> go.Figure:
     """Aplica tema oscuro a un figure de Plotly."""
     fig.update_layout(
@@ -828,12 +841,6 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
             "en 24 h no hay aviso). No se recalcula en vivo — "
             "fuente: simulate/10_metricas_ternario.py."
         )
-        # Métricas del sistema (modelo + regla de lluvia seca), criterio proba >= umbral.
-        RECALL_PRECAUCION = 0.717026
-        PRECISION_PRECAUCION = 0.578337
-        RECALL_ALERTA = 0.551559
-        PRECISION_ALERTA = 0.874525
-
         c1, c2 = st.columns(2)
         with c1:
             st.metric(
@@ -867,7 +874,9 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
             "sostenida por días."
         )
         try:
-            importancias = dict(zip(FEATURE_COLS, modelo.feature_importances_))
+            # Nombres tomados del propio modelo para no depender del orden de FEATURE_COLS
+            nombres = getattr(modelo, "feature_names_in_", FEATURE_COLS)
+            importancias = dict(zip(nombres, modelo.feature_importances_))
             df_imp = (
                 pd.DataFrame(
                     {"feature": list(importancias.keys()), "importance": list(importancias.values())}
@@ -917,33 +926,37 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
         )
         log_dia = log[log["timestamp"].dt.date == fecha_sel].copy()
 
+        # Sin `return`: una fecha sin lecturas no debe ocultar el simulador de abajo.
         if log_dia.empty:
-            st.warning("Sin datos en el log para esta fecha.")
-            return
-
-        opciones_hora = log_dia["timestamp"].dt.strftime("%H:%M").tolist()
-        hora_sel = st.selectbox("Hora (hora local)", opciones_hora, key="hora_inspeccion")
-
-        fila = log_dia[log_dia["timestamp"].dt.strftime("%H:%M") == hora_sel].iloc[0]
-
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown(f"**Fecha y hora:** `{fila['timestamp']}`")
-            st.markdown(f"**Estado de alerta:** `{fila['estado']}`")
-            st.markdown(f"**Probabilidad de riesgo:** `{fila['proba_alerta']:.4f}`")
-
-        with col_b:
-            cols_mostrar = [c for c in ["P_basin", "Q_actual", "Q_lag_1h", "roll_sum_24h", "hora_dia", "mes"]
-                            if c in fila.index]
-            if cols_mostrar:
-                df_vals = pd.DataFrame([{c: round(float(fila[c]), 6) for c in cols_mostrar}])
-                df_vals = df_vals.T.rename(columns={0: "Valor"})
-                df_vals.index = [NOMBRES_LEGIBLES.get(idx, idx) for idx in df_vals.index]
-                st.dataframe(df_vals, width="stretch")
+            st.warning("Sin lecturas para esta fecha (menos de 2 estaciones reportando). Elige otra.")
+        else:
+            _detalle_lectura(log_dia)
 
     # 6. Simulador
     with st.container(border=True, key="card-simulador"):
         _simulador_modelo(modelo)
+
+
+def _detalle_lectura(log_dia: pd.DataFrame) -> None:
+    """Selector de hora y detalle de una lectura del log (sección 'Consultar un momento')."""
+    opciones_hora = log_dia["timestamp"].dt.strftime("%H:%M").tolist()
+    hora_sel = st.selectbox("Hora (hora local)", opciones_hora, key="hora_inspeccion")
+
+    fila = log_dia[log_dia["timestamp"].dt.strftime("%H:%M") == hora_sel].iloc[0]
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown(f"**Fecha y hora:** `{fila['timestamp']}`")
+        st.markdown(f"**Estado de alerta:** `{fila['estado']}`")
+        st.markdown(f"**Probabilidad de riesgo:** `{fila['proba_alerta']:.4f}`")
+
+    with col_b:
+        cols_mostrar = [c for c in ["P_basin", "Q_actual", "Q_lag_1h", "roll_sum_24h", "hora_dia", "mes"]
+                        if c in fila.index]
+        df_vals = pd.DataFrame([{c: round(float(fila[c]), 6) for c in cols_mostrar}])
+        df_vals = df_vals.T.rename(columns={0: "Valor"})
+        df_vals.index = [NOMBRES_LEGIBLES.get(idx, idx) for idx in df_vals.index]
+        st.dataframe(df_vals, width="stretch")
 
 
 # ── simulador interactivo del modelo ─────────────────────────────────────────
@@ -1507,7 +1520,10 @@ div[data-testid="stHorizontalBlock"]:has(.st-key-card-hero) [data-testid="stVert
 .cl-hero .action{color:var(--cl-muted);font-size:16px}
 .cl-gauge{position:relative;display:flex;height:10px;margin:18px 0 6px}
 .cl-gauge .mk{position:absolute;top:-4px;width:4px;height:18px;border-radius:2px;background:#fff;transform:translateX(-50%)}
-.cl-gauge-lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--cl-muted)}
+.cl-gauge-lbl{position:relative;height:16px;font-size:11px;color:var(--cl-muted)}
+.cl-gauge-lbl>span{position:absolute;transform:translateX(-50%)}
+.cl-gauge-lbl>span:first-child{transform:none}
+.cl-gauge-lbl>span:last-child{transform:translateX(-100%)}
 .cl-grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:8px}
 .cl-item{display:grid;grid-template-columns:64px auto 1fr 46px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--cl-border)}
 .cl-bar{height:6px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
@@ -1648,13 +1664,7 @@ def main() -> None:
     # Header con logo y badges
     ultima = log.iloc[-1]
     estado_actual = str(ultima["estado"])
-    ultima_fecha_str = ultima["timestamp"].strftime("%d-%b-%Y").replace(
-        "Jan", "ene"
-    ).replace("Feb", "feb").replace("Mar", "mar").replace("Apr", "abr").replace(
-        "May", "may"
-    ).replace("Jun", "jun").replace("Jul", "jul").replace("Aug", "ago").replace(
-        "Sep", "sep"
-    ).replace("Oct", "oct").replace("Nov", "nov").replace("Dec", "dic")
+    ultima_fecha_str = _fecha_es(ultima["timestamp"], "%d-%b-%Y")
     render_header(estado_actual, ultima_fecha_str)
 
     # Apartado "¿De qué trata CentineLA?" — visible en ambas vistas
@@ -1767,8 +1777,11 @@ def main() -> None:
                         )
                     msg_caption = msg_transparencia
                 else:
-                    msg_tipo, msg_texto = "error", msg_texto
                     msg_caption = resultado["error"]
+            except Exception as exc:  # noqa: BLE001 — capturar todo es intencional
+                # Error no previsto: detalle a los logs del servidor, al usuario solo
+                # el mensaje genérico (nunca una traza).
+                print(f"[actualizar_ahora] error no controlado: {exc!r}", file=sys.stderr)
             finally:
                 est["lock"].release()
                 est["proximo"] = time.time() + (COOLDOWN_OK_S if ok else COOLDOWN_ERR_S)
