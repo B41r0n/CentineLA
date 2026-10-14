@@ -12,7 +12,7 @@ Las 3 estaciones IDEAM objetivo tienen histórico completo, verificado fila por 
   Hueco real de instrumento confirmado contra CSV crudo en Fase 2: última lectura antes del hueco **2019-02-18 16:00**, primera lectura posterior **2019-07-26 11:00**. La estimación de Fase 1 ("jul-2019→dic-2020") era incorrecta — el inicio real del hueco es febrero de 2019. Marcar esa ventana como "sin dato" en el ETL, no interpolar.
 - **Aeropuerto Olaya Herrera (0027015330)** — 918.046 filas, 2016-12-31 a 2026-07-09. Dos sensores de precipitación mezclados: codigosensor 240 y 257. **Decisión Fase 2: sensor 240 canónico del pipeline; 257 queda solo como QA.** Olaya sensor 240 también tiene hueco real confirmado contra CSV crudo: cae a 761 filas en 2019-03 (vs ~4000 en meses normales), en 0 durante abr-jun 2019, retoma 2019-08-24. Este hueco se detectó durante el filtro de calidad del ETL (36k filas perdidas por n_estaciones<2), no en la revisión original de Fase 1.
 
-Los conteos de filas son los de la descarga de Fase 1 (hasta 2026-07-09). Desde entonces Metromedellín y Olaya Herrera se extienden con el botón **Actualizar ahora** (`simulate/11_actualizar_ahora.py`); al 2026-10-07 el proxy llega a esa fecha.
+Los conteos de filas son los de la descarga de Fase 1 (hasta 2026-07-09). Desde entonces Metromedellín y Olaya Herrera se extienden con el botón **Actualizar ahora** (`simulate/11_actualizar_ahora.py`); al 2026-10-12 el proxy llega a esa fecha. El 13-oct-2026 se volvió a descargar completo el histórico de ambas para reparar el CSV local de Olaya, al que la deduplicación vieja de la actualización en vivo (antes de `b10cd19`, solo estación + hora) le había quitado 58,063 lecturas del sensor 240 y 61,139 del 257 desde el 2024-03-11, fecha en que empezó a reportar el 257.
 
 Las 3 están a 5,7-6,7 km de La Honda (no <1km como los candidatos originales Jardín Botánico/Bermejala, descartados por no tener histórico en s54a-sgyg por numeración de estación incompatible).
 
@@ -84,7 +84,7 @@ CUENCA ALTA                    TRAMO MEDIO                  TRAMO BAJO
 - **Umbral binario histórico (no vigente):** 0.20 sobre `predict_proba`. Recall=0.74, FP/TP≈1.5:1 (corrida del 27-jul-2026). El gateway actual (`09_gateway_simulado.py`) ya usa la escala ternaria.
 - **Sistema de alertas del dashboard (ternario, desde 2026-10):** NORMAL `proba < 0.30` (verde #2ecc71), PRECAUCIÓN `0.30 ≤ proba < 0.70` (amarillo #f39c12), ALERTA `proba ≥ 0.70` (rojo #e74c3c) — ver `clasificar_estado()` y `UMBRAL_PRECAUCION`/`UMBRAL_ALERTA` en `dashboard/app.py`. Criterio `proba >= umbral` en dashboard, gateway y `10_metricas_ternario.py`, todos importando `simulate/reglas_alerta.py`. Antes de clasificar se aplica la **regla de lluvia seca**: si `roll_sum_24h == 0`, la probabilidad se limita a 0.0066 (frecuencia de riesgo en las horas secas del train, 68/10,303), porque sin lluvia previa el modelo no puede anticipar los ~12 mm necesarios y, apoyado en hora/mes, daba avisos falsos (89 en test, 0 aciertos). El gateway escribe los 3 estados en el log; el dashboard igual los recalcula desde `proba_alerta` al cargar (logs antiguos traían `ALERTA_6H`/`NORMAL`). El clasificador sigue siendo una fuente dentro de la fusión multi-sensor (regla: ≥2 fuentes críticas = rojo), no árbitro único.
 - **Techo real de recall:** ~0.82 con umbral 0.10. Ningún umbral en [0.1, 0.5] alcanza recall ≥ 0.85 — limitación conocida, mitigada por diseño multi-fuente.
-- **Split:** cronológico con corte fijo. Train hasta 2025-07-06 16:00 (35,316 filas, 79.6%), test desde 2025-07-06 17:00 hasta 2026-09-30 (9,055 filas, 20.4%). Nunca aleatorio.
+- **Split:** cronológico con corte fijo. Train hasta 2025-07-06 16:00 (35,316 filas, 79.6%), test desde 2025-07-06 17:00 hasta 2026-09-30 (9,056 filas, 20.4%). Nunca aleatorio.
 - **Horizonte priorizado:** 6h (cuenca de ladera, tiempo de concentración corto; deadline oct-2026). Datasets 12h/24h generados pero no entrenados con el mismo rigor.
 - **Métricas clave:** recall y precision de clase positiva. Accuracy es inútil con 95% de clase negativa — baseline siempre-negativo tiene accuracy=0.95 y recall=0.
 - **Proxy SCS-CN:** `S = (25400/CN) - 254`, `Ia = 0.2*S`, `Q = (P-Ia)²/(P-Ia+S)` si `P > Ia`. CN=81.1 (ver `cuenca_la_honda_params.py`). P acumulado en rolling 24h. Aproximación de evento único aplicada a serie continua — documentar limitación; calibrar con nivel real cuando llegue de AMVA/SIATA.
@@ -243,29 +243,29 @@ Causa: ~8 % de horas con escorrentía >0 (366 en el test de entonces, 4.7 %). El
 
 | Umbral | Recall    | Precisión | Rol en el sistema                |
 |--------|-----------|-----------|----------------------------------|
-| 0.20   | 0.752998  | 0.471471  | referencia binaria anterior      |
-| 0.30   | 0.717026  | 0.578337  | PRECAUCIÓN (amarillo) o más      |
-| 0.70   | 0.551559  | 0.874525  | ALERTA (rojo)                    |
+| 0.20   | 0.752998  | 0.470060  | referencia binaria anterior      |
+| 0.30   | 0.717026  | 0.576108  | PRECAUCIÓN (amarillo) o más      |
+| 0.70   | 0.551559  | 0.867925  | ALERTA (rojo)                    |
 
-Modelo solo (control): 0.20 → 0.755396 / 0.406977 · 0.30 → 0.717026 / 0.493399 · 0.70 → 0.551559 / 0.861423.
+Modelo solo (control): 0.20 → 0.755396 / 0.405928 · 0.30 → 0.717026 / 0.491776 · 0.70 → 0.551559 / 0.855019. (Antes de reparar los datos de Olaya el 13-oct-2026, el sistema daba 0.578337 y 0.874525 de precisión en 0.30 y 0.70; los recall no cambiaron.)
 
 El barrido del 27-jul-2026 de arriba usaba `proba > umbral`; la versión del 03-oct-2026 también (0.714628 / 0.497496 en 0.30).
 
-**Parámetros:** Train 35,316 filas (hasta 2025-07-06 16:00), Test 9,055 filas (2025-07-06 17:00 → 2026-09-30), 417 positivos en test. Reproducible con `python simulate/10_metricas_ternario.py`.
+**Parámetros:** Train 35,316 filas (hasta 2025-07-06 16:00), Test 9,056 filas (2025-07-06 17:00 → 2026-09-30), 417 positivos en test. Reproducible con `python simulate/10_metricas_ternario.py`.
 
-**Lectura:** el amarillo avisa en más horas de riesgo (72%) y 58% de sus avisos coinciden con una; el rojo detecta menos (55%) pero 87.5% de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
+**Lectura:** el amarillo avisa en más horas de riesgo (72%) y 58% de sus avisos coinciden con una; el rojo detecta menos (55%) pero 86.8% de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
 
 Techo real de recall aislado: ~0.82. Limitación mitigada por fusión multi-fuente en la arquitectura.
 
 ## Fase 2 — Gateway simulado
 
 - `simulate/09_gateway_simulado.py` valida features streaming vs batch con 500 timestamps aleatorios, epsilon 1e-6 — **validación pasó limpia**.
-- Inferencia sobre serie completa (datos al 2026-10-07): 45,346 horas → 41,212 NORMAL / 729 PRECAUCIÓN / 3,405 ALERTA (log ternario con regla de lluvia seca, ~15 s por corrida; el log guarda `proba_modelo` y `proba_alerta`). Versiones anteriores del log eran binarias (4,947 `ALERTA_6H` / 38,918 `NORMAL`).
+- Inferencia sobre serie completa (datos al 2026-10-12): 45,472 horas → 41,262 NORMAL / 753 PRECAUCIÓN / 3,457 ALERTA (log ternario con regla de lluvia seca, ~15 s por corrida; el log guarda `proba_modelo` y `proba_alerta`). Versiones anteriores del log eran binarias (4,947 `ALERTA_6H` / 38,918 `NORMAL`).
 - Si la validación batch vs stream falla, `09` sale con código 1 sin escribir el log, para que `11_actualizar_ahora.py` reporte el error.
 - Con 0 mm en 24 h el modelo solo a veces marcaba PRECAUCIÓN/ALERTA por `hora_dia`/`mes` (61 ALERTA y 172 PRECAUCIÓN en el histórico). La regla de lluvia seca los anula sin perder detecciones en 0.30/0.70. Se evaluaron reentrenamientos (sin hora/mes, `min_samples_leaf`, codificación cíclica) y se descartaron: bajaban la precisión del rojo a 66–79 %.
 - Reentrenar con `08` hoy no reproduce exactamente `clf_6h.joblib` (01-oct-2026) porque el dataset cambió un poco; si se reentrena, hay que correr `09` y `10` y actualizar las cifras del dashboard, README y este documento.
 - Ventana de test real (2025-07-06 → 2026-07-09): 693 alertas en 7883 filas (8.8%), consistente con barrido de umbrales (~680 esperado para umbral 0.20) **(corrida previa, al 13-sep-2026)**.
-- Ventana de test actual (2025-07-06 → 2026-09-30): 9,055 filas, 417 positivos (label_6h=1).
+- Ventana de test actual (2025-07-06 → 2026-09-30): 9,056 filas, 417 positivos (label_6h=1).
 - Implementación: micro-lotes de 2048 filas con `n_jobs=1` en inferencia para evitar overhead de threading.
 
 ## Lecciones técnicas — Fase 2

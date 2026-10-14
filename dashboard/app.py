@@ -39,9 +39,9 @@ COOLDOWN_ERR_S = 60
 # seca), criterio proba >= umbral, test 2025-07-06 → 2026-09-30.
 # Fuente: simulate/10_metricas_ternario.py (no se recalculan en vivo).
 RECALL_PRECAUCION = 0.717026
-PRECISION_PRECAUCION = 0.578337
+PRECISION_PRECAUCION = 0.576108
 RECALL_ALERTA = 0.551559
-PRECISION_ALERTA = 0.874525
+PRECISION_ALERTA = 0.867925
 
 _MESES_ES = {
     "Jan": "ene", "Feb": "feb", "Mar": "mar", "Apr": "abr", "May": "may", "Jun": "jun",
@@ -836,7 +836,7 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
             "Acertados = de cada 100 avisos, cuántos coincidieron con una hora de riesgo. "
             "Hora de riesgo = el proxy hidrológico (SCS-CN) estima escorrentía hacia la "
             "quebrada en las 6 h siguientes; no son crecientes medidas en campo. "
-            "Calculado sobre el periodo de prueba (2025-07-06 → 2026-09-30, 9,055 horas), "
+            "Calculado sobre el periodo de prueba (2025-07-06 → 2026-09-30, 9,056 horas), "
             "que el modelo no vio al entrenar. Incluye la regla de lluvia seca (sin lluvia "
             "en 24 h no hay aviso). No se recalcula en vivo — "
             "fuente: simulate/10_metricas_ternario.py."
@@ -1047,9 +1047,9 @@ def features_simulador(valores: dict, ahora: pd.Timestamp) -> tuple[dict, bool]:
 _GUIA_STATS = [
     {"valor": "6 h", "etiqueta": "anticipación"},
     {"valor": "2", "etiqueta": "estaciones IDEAM activas"},
-    {"valor": "44,371", "etiqueta": "horas útiles (2016 – 30-sep-2026)"},
+    {"valor": "44,372", "etiqueta": "horas útiles (2016 – 30-sep-2026)"},
     {"valor": "71.7%", "etiqueta": "detección en amarillo"},
-    {"valor": "87.5%", "etiqueta": "precisión en rojo"},
+    {"valor": "86.8%", "etiqueta": "precisión en rojo"},
     {"valor": "18", "etiqueta": "variables del modelo"},
 ]
 
@@ -1149,7 +1149,7 @@ _GUIA_FAQ = [
         "cat": "Datos y modelo",
         "q": "¿De dónde salen los datos?",
         "simple": "De estaciones oficiales del IDEAM, publicadas como datos abiertos de Colombia.",
-        "tecnico": "Dataset s54a-sgyg. Activas: Metromedellín (0027015310) y Olaya Herrera, sensor 240 (0027015330). Pajarito (0027015290) está suspendida desde 2020: su histórico 2016–2020 sí entra al promedio de lluvia y al entrenamiento, pero no a la actualización en vivo. 44,371 horas utilizables tras los filtros de calidad (corte de evaluación 30-sep-2026)."
+        "tecnico": "Dataset s54a-sgyg. Activas: Metromedellín (0027015310) y Olaya Herrera, sensor 240 (0027015330). Pajarito (0027015290) está suspendida desde 2020: su histórico 2016–2020 sí entra al promedio de lluvia y al entrenamiento, pero no a la actualización en vivo. 44,372 horas utilizables tras los filtros de calidad (corte de evaluación 30-sep-2026)."
     },
     {
         "cat": "Datos y modelo",
@@ -1167,13 +1167,13 @@ _GUIA_FAQ = [
         "cat": "Datos y modelo",
         "q": "¿Qué predice exactamente el modelo?",
         "simple": "La probabilidad de que dentro de 6 horas la cuenca esté en condición de escurrir agua de forma importante, es decir, que la lluvia acumulada de 24 horas supere lo que el terreno alcanza a absorber.",
-        "tecnico": "Clase positiva = escorrentía SCS-CN a 6 h &gt; 0, equivalente a lluvia acumulada en 24 h por encima de ~11.8 mm (abstracción inicial con CN 81.1). Entrenamiento: 3,138 horas positivas de 35,316. Prueba: 417 de 9,055.",
+        "tecnico": "Clase positiva = escorrentía SCS-CN a 6 h &gt; 0, equivalente a lluvia acumulada en 24 h por encima de ~11.8 mm (abstracción inicial con CN 81.1). Entrenamiento: 3,138 horas positivas de 35,316. Prueba: 417 de 9,056.",
     },
     {
         "cat": "Datos y modelo",
         "q": "¿Qué tan confiable es?",
         "simple": "En pruebas con datos que el modelo no vio al entrenar, el nivel amarillo detecta cerca de 7 de cada 10 situaciones de riesgo y, cuando se activa el rojo, acierta en más de 8 de cada 10 veces.",
-        "tecnico": "Validación cronológica 80/20 (corte 2025-07-06 16:00; prueba hasta 2026-09-30). Umbral ≥0.30: recall 71.7% · precisión 57.8%. Umbral ≥0.70: recall 55.2% · precisión 87.5%. Incluyen la regla de lluvia seca (sin lluvia en 24 h no hay aviso). Las métricas son frente al proxy hidrológico.",
+        "tecnico": "Validación cronológica 80/20 (corte 2025-07-06 16:00; prueba hasta 2026-09-30). Umbral ≥0.30: recall 71.7% · precisión 57.6%. Umbral ≥0.70: recall 55.2% · precisión 86.8%. Incluyen la regla de lluvia seca (sin lluvia en 24 h no hay aviso). Las métricas son frente al proxy hidrológico.",
     },
     {
         "cat": "Datos y modelo",
