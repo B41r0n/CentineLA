@@ -5,7 +5,11 @@ Fase 7 - Métricas para umbrales ternarios (0.30 / 0.70).
 
 Reusa la misma definición de etiqueta y split cronológico (corte fijo en la columna split del dataset) de 08_clasificador_6h.py,
 carga simulate/models/clf_6h.joblib e imprime recall y precisión sobre el split de test
-para umbrales 0.20, 0.30 y 0.70.
+para umbrales 0.20, 0.30 y 0.70, en dos versiones:
+
+- Modelo: la probabilidad cruda del clasificador (sirve de control).
+- Sistema: la probabilidad tras la regla de lluvia seca de reglas_alerta.py. Son
+  las métricas que publica el dashboard, porque es lo que el semáforo muestra.
 
 Criterio: un umbral se considera activado si proba >= umbral, igual que el semáforo
 del dashboard (clasificar_estado) y el gateway simulado.
@@ -17,6 +21,8 @@ from pathlib import Path
 import joblib
 import pandas as pd
 from sklearn.metrics import precision_score, recall_score
+
+from reglas_alerta import ajustar_proba
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PROCESSED_DIR = BASE_DIR / "data" / "processed"
@@ -90,21 +96,28 @@ def main():
     modelo = joblib.load(MODEL_PATH)
     print(f"Modelo cargado: {MODEL_PATH}")
 
-    proba_test = modelo.predict_proba(x_test)[:, 1]
+    proba_modelo = modelo.predict_proba(x_test)[:, 1]
+    proba_sistema = ajustar_proba(proba_modelo, x_test["roll_sum_24h"].to_numpy())
 
-    print("\n=== Métricas por umbral (split test cronológico) ===")
-    print(f"{'Umbral':>7}  {'Recall':>10}  {'Precision':>10}")
-    print("-" * 32)
+    def tabla(titulo, proba):
+        print(f"\n=== {titulo} (split test cronológico) ===")
+        print(f"{'Umbral':>7}  {'Recall':>10}  {'Precision':>10}")
+        print("-" * 32)
+        res = {}
+        for umbral in UMBRALES:
+            y_pred = (proba >= umbral).astype(int)
+            rec = recall_score(y_test, y_pred, zero_division=0)
+            prec = precision_score(y_test, y_pred, zero_division=0)
+            res[umbral] = (rec, prec)
+            print(f"{umbral:>7.2f}  {rec:>10.6f}  {prec:>10.6f}")
+        return res
 
-    resultados = {}
-    for umbral in UMBRALES:
-        y_pred = (proba_test >= umbral).astype(int)
-        rec = recall_score(y_test, y_pred, zero_division=0)
-        prec = precision_score(y_test, y_pred, zero_division=0)
-        resultados[umbral] = (rec, prec)
-        print(f"{umbral:>7.2f}  {rec:>10.6f}  {prec:>10.6f}")
+    resultados = tabla("Modelo (probabilidad cruda)", proba_modelo)
+    tabla("Sistema (con regla de lluvia seca) — lo que publica el dashboard", proba_sistema)
+    anulados = int(((proba_modelo >= 0.30) & (proba_sistema < 0.30)).sum())
+    print(f"\nAvisos del modelo anulados por la regla en test: {anulados}")
 
-    # Control: verificar que 0.20 reproduce los valores esperados
+    # Control: verificar que el modelo en 0.20 reproduce los valores esperados
     rec_20, prec_20 = resultados[0.20]
     print("\n=== Control (umbral 0.20) ===")
     print(f"Recall obtenido:    {rec_20:.6f}  (esperado ~0.755396)")
