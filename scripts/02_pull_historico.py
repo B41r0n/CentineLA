@@ -319,7 +319,7 @@ def main():
     if campo_hist is None:
         print(
             f"\nNo detecté automáticamente el campo de código de estación en "
-            f"{DATASET_HISTORICO}. Mirá la lista de columnas arriba y ajustá "
+            f"{DATASET_HISTORICO}. Mira la lista de columnas arriba y ajusta "
             f"CAMPOS_CODIGO_POSIBLES en el script."
         )
 

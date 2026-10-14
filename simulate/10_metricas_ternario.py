@@ -7,7 +7,10 @@ Reusa la misma definición de etiqueta y split cronológico (corte fijo en la co
 carga simulate/models/clf_6h.joblib e imprime recall y precisión sobre el split de test
 para umbrales 0.20, 0.30 y 0.70.
 
-Control: el resultado en 0.20 debe reproducir ≈0.753 / ≈0.415 (corrida de retrain del 01-oct).
+Criterio: un umbral se considera activado si proba >= umbral, igual que el semáforo
+del dashboard (clasificar_estado) y el gateway simulado.
+
+Control: el resultado en 0.20 debe reproducir ≈0.755 / ≈0.407 (modelo del 01-oct-2026).
 """
 
 from pathlib import Path
@@ -95,7 +98,7 @@ def main():
 
     resultados = {}
     for umbral in UMBRALES:
-        y_pred = (proba_test > umbral).astype(int)
+        y_pred = (proba_test >= umbral).astype(int)
         rec = recall_score(y_test, y_pred, zero_division=0)
         prec = precision_score(y_test, y_pred, zero_division=0)
         resultados[umbral] = (rec, prec)
@@ -104,11 +107,11 @@ def main():
     # Control: verificar que 0.20 reproduce los valores esperados
     rec_20, prec_20 = resultados[0.20]
     print("\n=== Control (umbral 0.20) ===")
-    print(f"Recall obtenido:    {rec_20:.6f}  (esperado ~0.752998)")
-    print(f"Precision obtenida: {prec_20:.6f}  (esperado ~0.415344)")
+    print(f"Recall obtenido:    {rec_20:.6f}  (esperado ~0.755396)")
+    print(f"Precision obtenida: {prec_20:.6f}  (esperado ~0.406977)")
 
-    diff_rec = abs(rec_20 - 0.752998)
-    diff_prec = abs(prec_20 - 0.415344)
+    diff_rec = abs(rec_20 - 0.755396)
+    diff_prec = abs(prec_20 - 0.406977)
     if diff_rec > 0.01 or diff_prec > 0.01:
         print("\nADVERTENCIA: Diferencia > 0.01 respecto a la corrida de referencia.")
         print(f"   Delta recall = {diff_rec:.6f}, Delta precision = {diff_prec:.6f}")

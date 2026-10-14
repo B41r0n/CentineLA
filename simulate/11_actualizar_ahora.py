@@ -4,12 +4,20 @@
 Módulo 11: Actualización en vivo desde IDEAM (Socrata) con BD SQLite local.
 
 Flujo:
-1. Para cada estación, lee el último timestamp en data/raw/historico_<codigo>.csv
-2. Consulta Socrata (s54a-sgyg) solo el rango [último_ts, ahora]
-3. Append al CSV sin duplicar por (fechaobservacion, codigoestacion)
-4. Ejecuta pipeline: 04_scs_cn_proxy.py -> 06_etl_features.py -> 09_gateway_simulado.py
-5. Regenera data/processed/centinela.db (tabla lecturas) desde log_gateway_simulado.csv
+1. Para cada estación (Metromedellín y Olaya Herrera; Pajarito está suspendida),
+   lee el último timestamp en data/raw/historico_<codigo>.csv. Si el CSV no existe
+   (p. ej. en Streamlit Cloud, donde data/raw no se versiona), parte del último
+   timestamp del proxy menos 72 h.
+2. Consulta Socrata (s54a-sgyg) solo el rango [último_ts, ahora] en hora de Colombia
+3. Append al CSV sin duplicar por (fechaobservacion, codigoestacion, codigosensor)
+4. Ejecuta pipeline: 04_scs_cn_proxy.py -> 06_etl_features.py -> 09_gateway_simulado.py,
+   fusionando el proxy nuevo con el anterior para no perder el histórico
+5. Regenera data/processed/centinela.db (tabla lecturas) desde log_gateway_simulado.csv.
+   Es una copia de respaldo para consultas externas: el dashboard lee los CSV.
 6. Siembra la BD al importar el módulo si no existe (lazy)
+
+Si cualquier paso falla (incluida la validación batch vs streaming de 09, que sale
+con código != 0), se devuelve ok=False y el log anterior se conserva.
 """
 
 import importlib.util
@@ -46,7 +54,7 @@ DATA_PROCESSED_DIR = BASE_DIR / "data" / "processed"
 DB_PATH = DATA_PROCESSED_DIR / "centinela.db"
 
 ESTACIONES_DEFAULT = ("0027015310", "0027015330")  # Metromedellin, Olaya Herrera
-FECHA_INICIO_DEFAULT = "2026-09-30T18:00:00"  # día después del último dato conocido
+FECHA_INICIO_DEFAULT = "2026-09-30T18:00:00"  # último recurso si no hay CSV crudo ni proxy
 
 
 DOMINIO = "www.datos.gov.co"

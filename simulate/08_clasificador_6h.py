@@ -125,7 +125,8 @@ def analizar_importancias(modelo, feature_cols):
 def barrer_umbrales(proba_test, y_true, umbrales):
     filas = []
     for umbral in umbrales:
-        y_pred = (proba_test > umbral).astype(int)
+        # Mismo criterio que el semáforo del dashboard: activado si proba >= umbral.
+        y_pred = (proba_test >= umbral).astype(int)
         rec = recall_score(y_true, y_pred, zero_division=0)
         prec = precision_score(y_true, y_pred, zero_division=0)
         f1 = 0.0

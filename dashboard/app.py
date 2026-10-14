@@ -49,6 +49,15 @@ _act_spec.loader.exec_module(_act_mod)
 actualizar_ahora = _act_mod.actualizar_ahora
 asegurar_db_sembrada = _act_mod._asegurar_db_sembrada
 
+# CN compuesto de la cuenca (misma fuente que el proxy SCS-CN de 04_scs_cn_proxy.py)
+_PARAMS_PATH = BASE_DIR / "simulate" / "cuenca_la_honda_params.py"
+_params_spec = importlib.util.spec_from_file_location("cuenca_la_honda_params", _PARAMS_PATH)
+_params_mod = importlib.util.module_from_spec(_params_spec)
+_params_spec.loader.exec_module(_params_mod)
+CN = _params_mod.CN
+
+ZONA_HORARIA = "America/Bogota"
+
 # ── umbrales ternarios del sistema de alertas ──
 UMBRAL_PRECAUCION = 0.30
 UMBRAL_ALERTA = 0.70
@@ -145,7 +154,7 @@ def interpolar_nodos(anclas, n_total: int) -> list[dict]:
     """Genera n_total puntos a lo largo del recorrido real (alto→medio→bajo).
 
     Camina por longitud de arco (haversine) sobre los segmentos consecutivos
-    Arví→Jardín Botánico y Jardín Botánico→Moravia, interpolando linealmente
+    Arví→La Honda y La Honda→Moravia, interpolando linealmente
     DENTRO de cada segmento por separado. Los nodos quedan repartidos
     proporcionalmente a la distancia real de cada tramo (no por parámetro t
     uniforme entre anclas, que ignora que un segmento puede ser mucho más
@@ -459,9 +468,11 @@ def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
     inicio = ultima_fecha - pd.Timedelta(days=n_dias - 1)
     rango = pd.date_range(inicio, ultima_fecha, freq="D")
 
-    # Estado máximo por día: 0=NORMAL, 1=PRECAUCIÓN, 2=ALERTA
+    # Estado máximo por día: 0=NORMAL, 1=PRECAUCIÓN, 2=ALERTA.
+    # -1 = sin lecturas ese día (p. ej. menos de 2 estaciones): no es "sin riesgo".
     estado_map = {"NORMAL": 0, "PRECAUCIÓN": 1, "ALERTA": 2}
-    colores = {0: "#1f6f4a", 1: "#f39c12", 2: "#e74c3c"}  # verde apagado para NORMAL
+    colores = {-1: "#3a3f47", 0: "#1f6f4a", 1: "#f39c12", 2: "#e74c3c"}  # verde apagado para NORMAL
+    etiquetas = {-1: "sin datos", 0: "normal", 1: "precaución", 2: "alerta"}
     dia_estado = (
         log.groupby(log["timestamp"].dt.date)["estado"]
         .apply(lambda s: max((estado_map.get(e, 0) for e in s), default=0))
@@ -470,10 +481,10 @@ def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
     celdas = []
     for dia in rango:
         d = dia.date()
-        nivel = int(dia_estado.get(d, 0))
+        nivel = int(dia_estado.get(d, -1))
         color = colores[nivel]
         celda = (
-            '<div title="' + str(d) + '" style="background:' + color
+            '<div title="' + str(d) + " · " + etiquetas[nivel] + '" style="background:' + color
             + ';border-radius:4px;aspect-ratio:1;min-height:18px"></div>'
         )
         celdas.append(celda)
@@ -496,11 +507,16 @@ def _calendario_html(log: pd.DataFrame, n_dias: int = 90) -> str:
         '<span style="display:inline-block;width:12px;height:12px;'
         'background:#e74c3c;border-radius:2px;vertical-align:middle"></span>'
     )
+    cuadro_s = (
+        '<span style="display:inline-block;width:12px;height:12px;'
+        'background:#3a3f47;border-radius:2px;vertical-align:middle"></span>'
+    )
     leyenda = (
         '<div class="cl-leyenda" style="display:flex;gap:16px;font-size:12px;color:var(--cl-muted)">'
         + cuadro_n + " Normal&nbsp;&nbsp;"
         + cuadro_p + " Precaución&nbsp;&nbsp;"
-        + cuadro_a + " Alerta"
+        + cuadro_a + " Alerta&nbsp;&nbsp;"
+        + cuadro_s + " Sin datos"
         + "</div>"
     )
     return grid_html + leyenda
@@ -523,26 +539,28 @@ def _chips_html(items: list[tuple[str, str]], estado: str | None = None) -> str:
 
 
 def _lluvia_acumulada(proxy: pd.DataFrame) -> tuple[float, float, float, str]:
-    """Calcula lluvia acumulada en ventanas deslizantes desde la ultima fecha disponible.
+    """Calcula lluvia acumulada en ventanas deslizantes desde la última fecha disponible.
 
-    Usa proxy['timestamp'].max() como referencia — NUNCA la fecha real del sistema.
-    Devuelve (ult_24h_mm, ult_30d_mm, anio_mm, ref_fecha_str).
+    Usa proxy['timestamp'].max() como referencia — NUNCA la fecha real del sistema,
+    para que las ventanas cuadren con la última lectura aunque los datos estén atrasados.
+    Devuelve (ult_24h_mm, ult_7d_mm, ult_30d_mm, ref_fecha_str).
 
-    Se usan ventanas deslizantes (24h, 30d) en vez de dia/mes del calendario porque
-    el historico termina en 2026-07-09 con P_basin genuinamente en 0 para julio
-    (no llovio esos dias, verificado contra datos crudos). El acumulado de 30 dias
-    y anual reflejan mejor el contexto reciente sin mostrar 0 de forma confusa.
+    P_basin es el promedio horario de las estaciones con dato, así que el acumulado
+    también lo es. Se usan ventanas deslizantes en vez de día/mes del calendario
+    para no mostrar 0 de forma confusa al inicio de cada mes.
     """
     ultima_ts = proxy["timestamp"].max()   # referencia fija al dataset, no al reloj
-    anio_ref = ultima_ts.year
 
     p = proxy.dropna(subset=["P_basin"])
 
-    ult_24h = float(p[p["timestamp"] >= ultima_ts - pd.Timedelta(hours=24)]["P_basin"].sum())
-    ult_30d = float(p[p["timestamp"] >= ultima_ts - pd.Timedelta(days=30)]["P_basin"].sum())
-    anio_mm = float(p[p["timestamp"].dt.year == anio_ref]["P_basin"].sum())
+    def _acum(delta: pd.Timedelta) -> float:
+        return float(p[p["timestamp"] >= ultima_ts - delta]["P_basin"].sum())
+
+    ult_24h = _acum(pd.Timedelta(hours=24))
+    ult_7d = _acum(pd.Timedelta(days=7))
+    ult_30d = _acum(pd.Timedelta(days=30))
     ref_str = str(ultima_ts.date())
-    return ult_24h, ult_30d, anio_mm, ref_str
+    return ult_24h, ult_7d, ult_30d, ref_str
 
 
 # ── vista pública ─────────────────────────────────────────────────────────────
@@ -560,7 +578,7 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
     ).replace("Oct", "oct").replace("Nov", "nov").replace("Dec", "dic")
 
     # 1. Fila de chips con datos reales (ancho completo)
-    ult_24h, ult_30d, anio_mm, _ = _lluvia_acumulada(proxy)
+    ult_24h, ult_7d, ult_30d, _ = _lluvia_acumulada(proxy)
     # Días con alerta en últimos 30 días
     corte_30d = ultima["timestamp"] - pd.Timedelta(days=30)
     log_30d = log[log["timestamp"] >= corte_30d]
@@ -637,9 +655,6 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
 
     # 4. Lluvia acumulada: 3 tarjetas con _tarjeta_html en grid
     st.subheader("Lluvia acumulada")
-    _p_ok = proxy.dropna(subset=["P_basin"])
-    _ref_ts = proxy["timestamp"].max()
-    ult_7d = float(_p_ok[_p_ok["timestamp"] >= _ref_ts - pd.Timedelta(days=7)]["P_basin"].sum())
     st.markdown(
         _compacto('<div class="cl-grid3">'
         + _tarjeta_html("🌧️", "Últimas 24 horas", f"{ult_24h:.1f}", "mm")
@@ -659,7 +674,8 @@ def vista_publica(log: pd.DataFrame, proxy: pd.DataFrame) -> None:
         st.markdown(_calendario_html(log, n_dias=90), unsafe_allow_html=True)
     st.caption(
         "Cada cuadro es un día. Verde: sin alertas. Amarillo: hubo "
-        "precaución. Rojo: hubo alerta."
+        "precaución. Rojo: hubo alerta. Gris: sin lecturas ese día (menos de 2 "
+        "estaciones del IDEAM reportando), por lo que no se sabe el estado."
     )
 def _estilo_plotly(fig: go.Figure) -> go.Figure:
     """Aplica tema oscuro a un figure de Plotly."""
@@ -809,33 +825,34 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
             "que el modelo no vio al entrenar. No se recalcula en vivo — "
             "fuente: simulate/10_metricas_ternario.py."
         )
-        RECALL_PRECAUCION = 0.714628
-        PRECISION_PRECAUCION = 0.497496
-        RECALL_ALERTA = 0.549161
-        PRECISION_ALERTA = 0.860902
+        # Mismo criterio que el semáforo: estado activo si proba >= umbral.
+        RECALL_PRECAUCION = 0.717026
+        PRECISION_PRECAUCION = 0.493399
+        RECALL_ALERTA = 0.551559
+        PRECISION_ALERTA = 0.861423
 
         c1, c2 = st.columns(2)
         with c1:
             st.metric(
                 "Horas de riesgo detectadas (desde precaución)",
                 f"{RECALL_PRECAUCION:.1%}",
-                help="Recall con umbral 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
+                help="Recall con probabilidad ≥ 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
             )
             st.metric(
                 "Horas de riesgo detectadas (solo alerta roja)",
                 f"{RECALL_ALERTA:.1%}",
-                help="Recall con umbral 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
+                help="Recall con probabilidad ≥ 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
             )
         with c2:
             st.metric(
                 "Avisos acertados (desde precaución)",
                 f"{PRECISION_PRECAUCION:.1%}",
-                help="Precisión con umbral 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
+                help="Precisión con probabilidad ≥ 0.30 (PRECAUCIÓN). Fuente: simulate/10_metricas_ternario.py",
             )
             st.metric(
                 "Alertas rojas acertadas",
                 f"{PRECISION_ALERTA:.1%}",
-                help="Precisión con umbral 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
+                help="Precisión con probabilidad ≥ 0.70 (ALERTA). Fuente: simulate/10_metricas_ternario.py",
             )
 
     # 4. Qué factores pesan más en la alerta
@@ -928,23 +945,85 @@ def vista_operador(log: pd.DataFrame, proxy: pd.DataFrame, modelo) -> None:
 
 # ── simulador interactivo del modelo ─────────────────────────────────────────
 
+# Controles del simulador: (clave, etiqueta, máximo en mm). Cada uno es lluvia
+# promedio de la cuenca; los acumulados incluyen la última hora.
+_SIM_CONTROLES = [
+    ("sim_p1", "Lluvia en la última hora (mm)", 40.0),
+    ("sim_r3", "Lluvia acumulada 3 h (mm)", 60.0),
+    ("sim_r6", "Lluvia acumulada 6 h (mm)", 80.0),
+    ("sim_r12", "Lluvia acumulada 12 h (mm)", 100.0),
+    ("sim_r24", "Lluvia acumulada 24 h (mm)", 120.0),
+    ("sim_r48", "Lluvia acumulada 48 h (mm)", 150.0),
+]
+
 _ESCENARIOS = {
     "🌧️ Lluvia fuerte sostenida": {
-        "sim_lag_1h": 15.0, "sim_lag_3h": 35.0, "sim_lag_6h": 45.0,
-        "sim_roll12": 40.0, "sim_roll24": 45.0, "sim_roll48": 48.0,
-        "sim_Q": 3.0,
+        "sim_p1": 6.0, "sim_r3": 15.0, "sim_r6": 25.0,
+        "sim_r12": 35.0, "sim_r24": 45.0, "sim_r48": 55.0,
     },
     "⛈️ Aguacero puntual": {
-        "sim_lag_1h": 25.0, "sim_lag_3h": 15.0, "sim_lag_6h": 5.0,
-        "sim_roll12": 5.0, "sim_roll24": 5.0, "sim_roll48": 2.0,
-        "sim_Q": 1.0,
+        "sim_p1": 8.0, "sim_r3": 10.0, "sim_r6": 10.0,
+        "sim_r12": 10.0, "sim_r24": 10.0, "sim_r48": 10.0,
     },
     "☀️ Normal": {
-        "sim_lag_1h": 0.0, "sim_lag_3h": 0.0, "sim_lag_6h": 0.0,
-        "sim_roll12": 0.0, "sim_roll24": 0.0, "sim_roll48": 0.0,
-        "sim_Q": 0.0,
+        "sim_p1": 0.0, "sim_r3": 0.0, "sim_r6": 0.0,
+        "sim_r12": 0.0, "sim_r24": 0.0, "sim_r48": 0.0,
     },
 }
+
+
+def _q_scs(p_acc_24h: float) -> float:
+    """Escorrentía SCS-CN (mm) para un acumulado de 24 h, igual que 04_scs_cn_proxy.py."""
+    s = (25400 / CN) - 254
+    ia = 0.2 * s
+    if p_acc_24h <= ia:
+        return 0.0
+    exceso = p_acc_24h - ia
+    return exceso**2 / (exceso + s)
+
+
+def features_simulador(valores: dict, ahora: pd.Timestamp) -> tuple[dict, bool]:
+    """Convierte los controles del simulador en las 18 features del modelo.
+
+    Los acumulados se fuerzan a ser crecientes (1 h ≤ 3 h ≤ … ≤ 48 h); si hubo que
+    ajustarlos se devuelve ajustado=True. Las lluvias hora a hora (lags) se
+    aproximan repartiendo uniformemente la lluvia de cada tramo entre ventanas, y la
+    escorrentía se calcula con SCS-CN sobre el acumulado de 24 h (actual y estimado
+    hace 1, 3 y 6 h), como hace el proxy. Devuelve (features, ajustado).
+    """
+    crudos = [float(valores[k]) for k, _, _ in _SIM_CONTROLES]
+    acum = list(np.maximum.accumulate(crudos))
+    ajustado = acum != crudos
+    p1, r3, r6, r12, r24, r48 = acum
+
+    def _r24_hace(horas: int, lluvia_reciente: float) -> float:
+        # Acumulado de 24 h que había hace `horas`: sale la lluvia reciente y
+        # entra la de hace 24–48 h (repartida uniformemente).
+        return max(0.0, r24 - lluvia_reciente + (r48 - r24) * horas / 24)
+
+    lag_1h = (r3 - p1) / 2
+    lag_3h = (r6 - r3) / 3
+    x = {
+        "P_basin": p1,
+        "Q_actual": _q_scs(r24),
+        "lag_1h": lag_1h,
+        "lag_3h": lag_3h,
+        "lag_6h": (r12 - r6) / 6,
+        "lag_12h": (r24 - r12) / 12,
+        "lag_24h": (r48 - r24) / 24,
+        "Q_lag_1h": _q_scs(_r24_hace(1, p1)),
+        "Q_lag_3h": _q_scs(_r24_hace(3, r3)),
+        "Q_lag_6h": _q_scs(_r24_hace(6, r6)),
+        "roll_sum_3h": r3,
+        "roll_sum_6h": r6,
+        "roll_sum_12h": r12,
+        "roll_sum_24h": r24,
+        "roll_sum_48h": r48,
+        "roll_max_6h": max(p1, lag_1h, lag_3h),
+        "hora_dia": float(ahora.hour),
+        "mes": float(ahora.month),
+    }
+    return x, ajustado
 
 
 # ── contenido de la guía del proyecto ─────────────────────────────────────────
@@ -953,7 +1032,7 @@ _GUIA_STATS = [
     {"valor": "6 h", "etiqueta": "anticipación"},
     {"valor": "2", "etiqueta": "estaciones IDEAM activas"},
     {"valor": "44,371", "etiqueta": "horas útiles (2016 – 30-sep-2026)"},
-    {"valor": "71.5%", "etiqueta": "detección en amarillo"},
+    {"valor": "71.7%", "etiqueta": "detección en amarillo"},
     {"valor": "86.1%", "etiqueta": "precisión en rojo"},
     {"valor": "18", "etiqueta": "variables del modelo"},
 ]
@@ -1022,7 +1101,8 @@ _GUIA_REPO = """CentineLA/
 ├─ scripts/          01 estaciones · 02 descarga histórica del IDEAM
 ├─ data/processed/   datasets y proxy horario
 ├─ .streamlit/       tema oscuro
-└─ README.md · LICENSE (AGPL-3.0) · requirements.txt"""
+├─ tests/           pruebas (pytest)
+└─ README.md · LICENSE (AGPL-3.0) · requirements.txt · requirements-dev.txt"""
 
 _GUIA_FAQ = [
     {
@@ -1053,7 +1133,7 @@ _GUIA_FAQ = [
         "cat": "Datos y modelo",
         "q": "¿De dónde salen los datos?",
         "simple": "De estaciones oficiales del IDEAM, publicadas como datos abiertos de Colombia.",
-        "tecnico": "Dataset s54a-sgyg. Activas: Metromedellín (0027015310) y Olaya Herrera, sensor 240 (0027015330). Pajarito (0027015290) está suspendida desde 2020 y se excluye. 44,371 horas utilizables tras los filtros de calidad (corte de evaluación 30-sep-2026)."
+        "tecnico": "Dataset s54a-sgyg. Activas: Metromedellín (0027015310) y Olaya Herrera, sensor 240 (0027015330). Pajarito (0027015290) está suspendida desde 2020: su histórico 2016–2020 sí entra al promedio de lluvia y al entrenamiento, pero no a la actualización en vivo. 44,371 horas utilizables tras los filtros de calidad (corte de evaluación 30-sep-2026)."
     },
     {
         "cat": "Datos y modelo",
@@ -1076,8 +1156,8 @@ _GUIA_FAQ = [
     {
         "cat": "Datos y modelo",
         "q": "¿Qué tan confiable es?",
-        "simple": "En pruebas con datos que el modelo no vio al entrenar, el nivel amarillo detecta cerca de 7 de cada 10 situaciones de riesgo y, cuando se activa el rojo, acierta cerca de 9 de cada 10 veces.",
-        "tecnico": "Validación cronológica 80/20 (corte 2025-07-06 16:00; prueba hasta 2026-09-30). Umbral ≥0.30: recall 71.5% · precisión 49.7%. Umbral ≥0.70: recall 54.9% · precisión 86.1%. Las métricas son frente al proxy hidrológico.",
+        "simple": "En pruebas con datos que el modelo no vio al entrenar, el nivel amarillo detecta cerca de 7 de cada 10 situaciones de riesgo y, cuando se activa el rojo, acierta en más de 8 de cada 10 veces.",
+        "tecnico": "Validación cronológica 80/20 (corte 2025-07-06 16:00; prueba hasta 2026-09-30). Umbral ≥0.30: recall 71.7% · precisión 49.3%. Umbral ≥0.70: recall 55.2% · precisión 86.1%. Las métricas son frente al proxy hidrológico.",
     },
     {
         "cat": "Datos y modelo",
@@ -1089,7 +1169,7 @@ _GUIA_FAQ = [
         "cat": "Datos y modelo",
         "q": "¿Por qué puede marcar alerta alta solo con lluvia?",
         "simple": "Porque hoy CentineLA mide riesgo por lluvia: con unos 22 mm acumulados en un día ya se supera casi al doble el umbral en que el terreno empieza a escurrir. Los sensores en el cauce, de la siguiente fase, servirán para confirmar el nivel real antes de escalar una alerta.",
-        "tecnico": "El diseño completo exige al menos 2 señales críticas simultáneas (modelo + sensor físico de nivel o turbidez) para una alerta roja confirmada. Las variables más influyentes: lluvia acumulada 24 h (20.6%) y 48 h (12.8%). La probabilidad refleja la confianza dentro de la definición del modelo, no una medición del nivel del agua.",
+        "tecnico": "El diseño completo exige al menos 2 señales críticas simultáneas (modelo + sensor físico de nivel o turbidez) para una alerta roja confirmada. Las variables más influyentes: lluvia acumulada 24 h (20.6%) y 48 h (12.8%). La probabilidad refleja la confianza dentro de la definición del modelo, no una medición del nivel del agua. Limitación conocida: como la hora y el mes también pesan, en algunas combinaciones el modelo marca precaución o alerta sin lluvia reciente (en el histórico, 61 alertas y 172 precauciones de 14,315 horas con 0 mm en 24 h).",
     },
     {
         "cat": "Datos y modelo",
@@ -1101,7 +1181,7 @@ _GUIA_FAQ = [
         "cat": "Plataforma",
         "q": "¿Ya hay sensores instalados en la quebrada?",
         "simple": "Todavía no. Hoy funciona completa la parte de datos, predicción y tablero; los nodos físicos son la siguiente fase.",
-        "tecnico": "Diseño: nodos ESP32 cada ~500 m con sensor de nivel ultrasónico, turbidez, cámara, semáforo LED y sirena con panel solar, conectados por LoRa a un gateway Raspberry Pi 4. Un gateway simulado valida que la inferencia en streaming coincide con la de lote (tolerancia 1e-6, 500 marcas de tiempo aleatorias). Instalar requiere visita de campo y coordinación con la Secretaría de Medio Ambiente.",
+        "tecnico": "Diseño: nodos ESP32 en los tramos alto, medio y bajo con sensor de nivel ultrasónico, turbidez, cámara, semáforo LED y sirena con panel solar, conectados por LoRa a un gateway Raspberry Pi 4. Un gateway simulado valida que la inferencia en streaming coincide con la de lote (tolerancia 1e-6, 500 marcas de tiempo aleatorias). Instalar requiere visita de campo y coordinación con la Secretaría de Medio Ambiente.",
     },
     {
         "cat": "Plataforma",
@@ -1119,7 +1199,7 @@ _GUIA_FAQ = [
         "cat": "Plataforma",
         "q": "¿Por qué a veces los datos vuelven a una fecha anterior?",
         "simple": "La versión gratuita se \"duerme\" cuando nadie la usa y al despertar carga los datos guardados en el repositorio. El botón Actualizar ahora trae los más recientes del IDEAM.",
-        "tecnico": "El plan gratuito no tiene disco persistente: la base SQLite se reconstruye desde los CSV del repositorio. Una base externa o una actualización programada (GitHub Actions) lo resolvería; queda como mejora.",
+        "tecnico": "El plan gratuito no tiene disco persistente: el tablero vuelve a leer los CSV del repositorio (la copia en SQLite, centinela.db, se regenera desde ellos y es solo un respaldo para consultas externas). Una base externa o una actualización programada (GitHub Actions) lo resolvería; queda como mejora.",
     },
     {
         "cat": "Alcance",
@@ -1151,39 +1231,15 @@ def _simulador_modelo(modelo) -> None:
                 st.session_state[k] = v
 
     # ── sliders ───────────────────────────────────────────────────────────
+    valores = {}
     col1, col2 = st.columns(2)
-    with col1:
-        lag_1h  = st.slider("Lluvia en la última hora (mm)",  0.0, 50.0, step=0.5, key="sim_lag_1h")
-        lag_3h  = st.slider("Lluvia en las últimas 3 horas (mm)",  0.0, 50.0, step=0.5, key="sim_lag_3h")
-        lag_6h  = st.slider("Lluvia en las últimas 6 horas (mm)",  0.0, 50.0, step=0.5, key="sim_lag_6h")
-        q_act   = st.number_input("Escorrentía actual (mm)", min_value=0.0, max_value=20.0, step=0.1, key="sim_Q")
-    with col2:
-        roll12  = st.slider("Lluvia acumulada 12 h (mm)", 0.0, 50.0, step=0.5, key="sim_roll12")
-        roll24  = st.slider("Lluvia acumulada 24 h (mm)", 0.0, 50.0, step=0.5, key="sim_roll24")
-        roll48  = st.slider("Lluvia acumulada 48 h (mm)", 0.0, 50.0, step=0.5, key="sim_roll48")
+    for i, (clave, etiqueta, maximo) in enumerate(_SIM_CONTROLES):
+        with (col1 if i < 3 else col2):
+            valores[clave] = st.slider(etiqueta, 0.0, maximo, step=0.5, key=clave)
 
     # ── features derivadas (aproximación) ────────────────────────────────
-    ahora = pd.Timestamp.now()
-    x_vec = {
-        "P_basin":       lag_1h,
-        "Q_actual":      q_act,
-        "lag_1h":        lag_1h,
-        "lag_3h":        lag_3h,
-        "lag_6h":        lag_6h,
-        "lag_12h":       lag_6h * 0.5,
-        "lag_24h":       lag_6h * 0.25,
-        "Q_lag_1h":      q_act,
-        "Q_lag_3h":      q_act,
-        "Q_lag_6h":      q_act,
-        "roll_sum_3h":   (lag_1h + lag_3h) * 0.5,
-        "roll_sum_6h":   lag_6h,
-        "roll_sum_12h":  roll12,
-        "roll_sum_24h":  roll24,
-        "roll_sum_48h":  roll48,
-        "roll_max_6h":   lag_1h,
-        "hora_dia":      float(ahora.hour),
-        "mes":           float(ahora.month),
-    }
+    ahora = pd.Timestamp.now(tz=ZONA_HORARIA)
+    x_vec, ajustado = features_simulador(valores, ahora)
 
     if st.button("Simular", type="primary"):
         x_df = pd.DataFrame([x_vec])[FEATURE_COLS]
@@ -1193,10 +1249,18 @@ def _simulador_modelo(modelo) -> None:
             _estado_semaforo_html(estado_pred, proba),
             unsafe_allow_html=True,
         )
+        if ajustado:
+            st.warning(
+                "Algunos acumulados eran menores que una ventana más corta (por ejemplo, "
+                "menos lluvia en 24 h que en 6 h). Para simular se igualaron al valor "
+                "de la ventana más corta."
+            )
         st.caption(
             f"Probabilidad calculada: {proba:.1%}. "
             "Verde menos de 30% · Amarillo 30–70% · Rojo 70% o más. "
-            "Los valores intermedios se aproximan a partir de los controles."
+            f"La escorrentía se calcula con SCS-CN (CN {CN}) a partir del acumulado de 24 h; "
+            "la lluvia hora a hora se aproxima repartiendo cada acumulado de forma pareja. "
+            f"Hora y mes: los actuales en Colombia ({ahora:%H:%M}, mes {ahora.month})."
         )
 
 
@@ -1383,9 +1447,10 @@ def _guia_faq_html() -> str:
           </details>
         </details>
         """))
+    secciones_html = "\n".join(sections)
     return _guia_block(f"""
     <div class="cl-guia">
-      {"\n".join(sections)}
+      {secciones_html}
     </div>
     """)
 
@@ -1606,7 +1671,7 @@ def main() -> None:
             )
         st.caption(
             "Prototipo: este panel usa el histórico del IDEAM procesado y un gateway "
-            "simulado. Proyecto individual de Bairon Nicolas Calle Rivera · ITM · "
+            "simulado. Proyecto individual de Bairon Nicolás Calle Rivera · ITM · "
             "Territorio INN 2026, Reto #7."
         )
 
@@ -1631,7 +1696,7 @@ def main() -> None:
     )
     st.sidebar.caption(f"Última lectura: {ultima['timestamp']}")
     st.sidebar.caption(f"Estado: {estado_actual}")
-    st.sidebar.caption("CentineLA — Bairon Nicolas Calle Rivera · ITM · Territorio INN 2026")
+    st.sidebar.caption("CentineLA — Bairon Nicolás Calle Rivera · ITM · Territorio INN 2026")
 
     # Botón guía del proyecto en sidebar
     st.sidebar.divider()
@@ -1721,7 +1786,7 @@ def main() -> None:
     # Footer
     st.divider()
     st.caption(
-        "CentineLA · Bairon Nicolas Calle Rivera · ITM · Territorio INN 2026 · "
+        "CentineLA · Bairon Nicolás Calle Rivera · ITM · Territorio INN 2026 · "
         "Datos: IDEAM (datos.gov.co) · Prototipo con gateway simulado"
     )
 

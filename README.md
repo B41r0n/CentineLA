@@ -4,7 +4,7 @@ Sistema de alerta temprana de crecientes súbitas para la **Quebrada La Honda**,
 
 ## Autor
 
-Bairon Nicolas Calle Rivera — estudiante de Gestión de Redes de Telecomunicaciones, ITM (Instituto Tecnológico Metropolitano), Medellín.
+Bairon Nicolás Calle Rivera — estudiante de Gestión de Redes de Telecomunicaciones, ITM (Instituto Tecnológico Metropolitano), Medellín.
 Proyecto individual — Territorio INN 2026, Reto #7.
 
 ---
@@ -75,9 +75,12 @@ CUENCA ALTA                         TRAMO MEDIO                         TRAMO BA
 
 ```text
 CentineLA/
-├── .gitignore                              # Ignora venv, __pycache__, datos/modelos generados y config local de IDEs
-├── requirements.txt                        # Dependencias raíz (ahora completas)
-├── LICENSE                                 # Licencia del software
+├── .gitignore                              # Ignora venv, __pycache__, .env, datos/modelos generados y config local de IDEs
+├── .env.example                            # Plantilla de variables de entorno (sin valores)
+├── .streamlit/config.toml                  # Tema oscuro del dashboard
+├── requirements.txt                        # Dependencias de ejecución (versiones exactas)
+├── requirements-dev.txt                    # Herramientas de desarrollo: pytest, ruff
+├── LICENSE                                 # Licencia AGPL-3.0
 ├── CENTINELA_CONTEXTO_TECNICO.md           # Contexto interno para asistentes de código
 │
 ├── scripts/
@@ -95,7 +98,8 @@ CentineLA/
 │       ├── proxy_q_la_honda.csv            # Proxy SCS-CN horario
 │       ├── proxy_q_la_honda_eventos.png    # Serie completa + marcas de eventos (vacío hoy)
 │       ├── dataset_6h.csv                  # Dataset de entrenamiento (horizonte 6 h)
-│       └── log_gateway_simulado.csv        # Resultado de la simulación del gateway
+│       ├── log_gateway_simulado.csv        # Resultado de la simulación del gateway (lo que lee el dashboard)
+│       └── centinela.db                    # Copia SQLite del log para consultas externas (NO trackeado; la genera 11)
 │
 ├── simulate/
 │   ├── cuenca_la_honda_params.py           # Área, longitud, tramos, CN compuesto (dato-duro vs supuesto)
@@ -105,12 +109,18 @@ CentineLA/
 │   ├── 07_entrenar_modelo_6h.py            # 3 enfoques de RandomForestRegressor
 │   ├── 08_clasificador_6h.py               # RandomForestClassifier: NORMAL / PRECAUCIÓN / ALERTA (modelo en producción)
 │   ├── 09_gateway_simulado.py              # Gateway simulado en modo streaming
+│   ├── 10_metricas_ternario.py             # Recall/precisión de los umbrales 0.30 / 0.70 (fuente de las métricas del dashboard)
+│   ├── 11_actualizar_ahora.py              # Actualización en vivo desde IDEAM (botón "Actualizar ahora")
 │   └── models/                             # Trackeado para deploy
 │       └── clf_6h.joblib
 │
-└── dashboard/
-    ├── app.py                              # Dashboard Streamlit
-    └── _check_fixes.py                     # Script de verificación de fixes y simulador
+├── dashboard/
+│   ├── app.py                              # Dashboard Streamlit
+│   └── _check_fixes.py                     # Script de verificación del dashboard y del simulador
+│
+└── tests/                                  # Pruebas automáticas (pytest)
+    ├── test_append_dedup.py                # Deduplicación de la actualización en vivo
+    └── test_dashboard.py                   # Umbrales, calendario y simulador
 ```
 
 ---
@@ -198,18 +208,18 @@ piso_dias = 7   # dentro de descarga_rango_recursiva
 
 * “No asumimos nombres de columna a ciegas, porque Socrata a veces los cambia entre datasets.”
 * La descarga por años permite reanudar parcialmente sin perder todo el progreso.
-* El script deja explícitas las credenciales en una variable `_partes_dominio` y usuario/contraseña; esto **no debería subirse a Git**, pero está presente en el código local.
+* Las credenciales **no están en el código**: se leen de `.env` con `python-dotenv` (`SODAPY_APP_TOKEN`, o en su lugar `SODAPY_USERNAME` + `SODAPY_PASSWORD`). Ver §8.3.
 * Si no hay datos en `s54a-sgyg` para un código, no genera un CSV vacío; advierte para evitar silencios.
 
 **Estaciones reales descargadas en este repo:**
 
-| Código | Nombre | Sensor canónico | Sensor QA | Rango aproximado (CSV) |
-|--------|--------|-----------------|-----------|------------------------|
-| `0027015290` | Pajarito | 240 | — | 2016-12-31 → 2020-03-28 |
-| `0027015310` | Metromedellín | 240 | — | 2016-12-31 → 2026-07-09 |
-| `0027015330` | Olaya Herrera | 240 | 257 | 2016-12-31 → 2026-07-09 |
+| Código | Nombre | Sensor canónico | Sensor QA | Rango del CSV (al 2026-10-07) |
+|--------|--------|-----------------|-----------|-------------------------------|
+| `0027015290` | Pajarito | 240 | — | 2016-12-31 → 2020-03-28 (suspendida) |
+| `0027015310` | Metromedellín | 240 | — | 2016-12-31 → 2026-10-07 |
+| `0027015330` | Olaya Herrera | 240 | 257 | 2016-12-31 → 2026-10-07 |
 
-Estos metadatos están codificados en `simulate/04_scs_cn_proxy.py`, no solo en `02_pull_historico.py`.
+La descarga histórica original llegó hasta 2026-07-09; desde ahí las dos estaciones activas se extienden con **Actualizar ahora** (§8.4). Estos metadatos están codificados en `simulate/04_scs_cn_proxy.py`, no solo en `02_pull_historico.py`.
 
 ---
 
@@ -310,7 +320,7 @@ STATION_META = {
 
 **Resultado real del proxy (última corrida):**
 
-* `proxy_q_la_honda.csv`: 83 458 filas horarias, desde `2016-12-31 14:00:00` hasta `2026-07-09 23:00:00`.
+* `proxy_q_la_honda.csv`: 85 618 filas horarias, desde `2016-12-31 14:00:00` hasta `2026-10-07 23:00:00` (la corrida del 27-jul-2026 tenía 83 458 filas hasta `2026-07-09`; el archivo crece con cada actualización en vivo).
 * Columnas: `timestamp`, `P_basin`, `P_acc_24h`, `Q_scs_proxy`, `n_estaciones_disponibles`.
 * Con CN=81.1: `S ≈ 59.20`, `Ia ≈ 11.84`.
 
@@ -397,7 +407,7 @@ features["mes"] = features.index.month
 6. **Targets:** crea `target_6h`, `target_12h`, `target_24h` con `base_horaria["Q_scs_proxy"].shift(-horizonte_horas)`.
 7. **Split cronológico:**
    * Si ya existe un `dataset_{h}h.csv` previo con columna `split`, **preserva el corte** para no cambiar la evaluación entre corridas. Si existe un dataset previo, el ETL conserva su corte; en la corrida del 01-oct-2026 el corte se mantuvo en 2025-07-06 16:00.
-   * Si no, usa proporción **82/18** (`int(n_total * 0.82)`).
+   * Si no, usa proporción **82/18** (`int(n_total * 0.82)`). Ese 82/18 se aplicó al dataset de su momento; con los datos al 2026-09-30 el corte preservado equivale a ≈80/20 (79.6 % train / 20.4 % test).
 8. **Guarda** `dataset_6h.csv` (y también genera `dataset_12h.csv`, `dataset_24h.csv` y `filas_baja_calidad.csv` si se desean).
 
 **Entrada:** `data/processed/proxy_q_la_honda.csv`.
@@ -552,13 +562,15 @@ RandomForestClassifier(
 )
 ```
 
-**Entrenamiento:**
+**Entrenamiento (datos vigentes, corte de evaluación 2026-09-30):**
 
-* `n train = 35 315`, `n test = 7 753`.
+* `n train = 35 316`, `n test = 9 055`.
 * Positivos train: 3 138 (8.89 %).
-* Positivos test: 366 (4.72 %).
+* Positivos test: 417 (4.61 %).
 
-**Resultados en test con threshold por defecto (0.5):**
+> La corrida original del 27-jul-2026 tenía `n test = 7 753` con 366 positivos (4.72 %); el reporte y el barrido de abajo son de esa corrida.
+
+**Resultados en test con threshold por defecto (0.5) — corrida del 27-jul-2026:**
 
 ```text
               precision    recall  f1-score   support
@@ -569,7 +581,7 @@ RandomForestClassifier(
     accuracy                       0.963240      7753
 ```
 
-**Barrido de umbrales — corrida del 27-jul-2026 (referencia histórica, dataset de 43,068 filas):**
+**Barrido de umbrales — corrida del 27-jul-2026 (referencia histórica, dataset de 43,068 filas, criterio `proba > umbral`):**
 
 | Umbral | Recall | Precisión | FN | FP | TP |
 |--------|--------|-----------|----|----|----|
@@ -580,19 +592,21 @@ RandomForestClassifier(
 | 0.15 | 0.781421 | 0.311208 | 80 | 633 | 286 |
 | 0.10 | 0.816940 | 0.256873 | 67 | 865 | 299 |
 
-### Métricas con umbrales ternarios (corrida del 03-oct-2026)
+### Métricas con umbrales ternarios (vigentes, corrida del 13-oct-2026)
+
+Criterio `proba >= umbral`, el mismo que aplican el semáforo del dashboard (`clasificar_estado()`) y el gateway simulado.
 
 | Umbral | Recall    | Precisión | Rol en el sistema                |
 |--------|-----------|-----------|----------------------------------|
-| 0.20   | 0.752998  | 0.415344  | referencia binaria anterior      |
-| 0.30   | 0.714628  | 0.497496  | PRECAUCIÓN (amarillo) o más      |
-| 0.70   | 0.549161  | 0.860902  | ALERTA (rojo)                    |
+| 0.20   | 0.755396  | 0.406977  | referencia binaria anterior      |
+| 0.30   | 0.717026  | 0.493399  | PRECAUCIÓN (amarillo) o más      |
+| 0.70   | 0.551559  | 0.861423  | ALERTA (rojo)                    |
 
 **Parámetros de la corrida:** Train 35,316 filas (hasta 2025-07-06 16:00), Test 9,055 filas (2025-07-06 17:00 → 2026-09-30), 417 positivos en test (label_6h=1). Reproducible con `python simulate/10_metricas_ternario.py`.
 
-> Las métricas se calculan sobre el test hasta 2026-09-30; el dataset se extiende con las actualizaciones en vivo, pero la evaluación queda fija para que sea reproducible.
+> Las métricas se calculan sobre el test hasta 2026-09-30; el dataset se extiende con las actualizaciones en vivo, pero la evaluación queda fija. Como cada actualización vuelve a correr el ETL sobre todo el proxy, los decimales pueden moverse ligeramente si cambian datos dentro de la ventana de prueba (por ejemplo, lecturas que el IDEAM publica o corrige tarde): la versión del 03-oct-2026, con criterio `>`, daba 0.497496 de precisión en 0.30 y hoy, con ese mismo criterio, da 0.496667.
 
-**Lectura:** el amarillo avisa en más horas de riesgo (71%) pero la mitad de sus avisos no coinciden con una; el rojo detecta menos (55%) pero 86% de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
+**Lectura:** el amarillo avisa en más horas de riesgo (72 %) pero la mitad de sus avisos no coinciden con una; el rojo detecta menos (55 %) pero 86 % de sus avisos coinciden con una hora de riesgo. "Hora de riesgo" = escorrentía estimada por el proxy SCS-CN a 6 h; las métricas se miden contra el proxy, no contra crecientes observadas en campo.
 
 **Observación importante sobre el recomendador automático:**
 
@@ -603,7 +617,7 @@ LIMITACION A DOCUMENTAR: ningun umbral del barrido alcanza recall >= 0.85.
 El maximo recall alcanzable en [0.1, 0.5] es 0.816940 con umbral=0.10
 ```
 
-El dashboard expone tres niveles de alerta (NORMAL / PRECAUCIÓN / ALERTA) sobre la misma probabilidad binaria. El umbral de ALERTA (0.70) es más conservador que el umbral binario histórico (0.20), mientras que PRECAUCIÓN (0.30) actúa como zona de vigilancia. El clasificador sigue siendo **una fuente dentro de una fusión multi-sensor**; se acepta más falsos positivos a cambio de no perder eventos.
+El dashboard expone tres niveles de alerta (NORMAL / PRECAUCIÓN / ALERTA) sobre la misma probabilidad binaria. PRECAUCIÓN (0.30) es la zona de vigilancia: prioriza detectar (recall) y acepta más falsos positivos. ALERTA (0.70) es más exigente que el umbral binario histórico (0.20): prioriza que el rojo sea confiable (precisión). El clasificador sigue siendo **una fuente dentro de una fusión multi-sensor**, no el árbitro único.
 
 **Feature importance del clasificador (ordenada):**
 
@@ -621,10 +635,10 @@ mes:          0.035238
 ...
 ```
 
-**Archivo generado (NO trackeado):**
+**Archivo generado (trackeado para el deploy):**
 
 ```text
-simulate/models/clf_6h.joblib   # 42 463 KB
+simulate/models/clf_6h.joblib   # ~42 464 KB
 ```
 
 ### 5.3 SMOTENC
@@ -648,8 +662,9 @@ EPSILON = 1e-6
 N_VALIDACION_TS = 500
 ```
 
+   Si la validación falla, el script **termina con código de salida 1 sin escribir el log**, para que `11_actualizar_ahora.py` reporte el error en vez de mostrar datos viejos como nuevos.
 4. **Inferencia por micro-lotes:** procesa features en lotes de 2048 y predice con `n_jobs=1` para evitar overhead de threading.
-5. **Umbral de alerta (gateway):** `UMBRAL_ALERTA = 0.20` (binario en `09_gateway_simulado.py`). El dashboard reinterpreta esa probabilidad en tres estados: NORMAL `< 0.30`, PRECAUCIÓN `[0.30, 0.70)`, ALERTA `≥ 0.70`.
+5. **Estados (gateway y dashboard):** `UMBRAL_PRECAUCION = 0.30` y `UMBRAL_ALERTA = 0.70`, con criterio `proba >= umbral`: NORMAL `< 0.30`, PRECAUCIÓN `[0.30, 0.70)`, ALERTA `≥ 0.70`. El log ya se escribe con estos tres estados; el dashboard igual los recalcula desde `proba_alerta` al cargar. (Versiones anteriores del gateway usaban un umbral binario de 0.20 y la etiqueta `ALERTA_6H`.)
 
 ### Metodología
 
@@ -672,31 +687,36 @@ def calcular_features_streaming(base_stream):
         }
 ```
 
-### Resultado de la última corrida
+### Resultado de la última corrida (13-oct-2026, datos hasta 2026-10-07)
 
 ```text
-Proxy cargado: ... | filas=83458
-Dataset batch cargado: ... | filas=43068
+Proxy cargado: ... | filas=85618
+Dataset batch cargado: ... | filas=44514
 VALIDACION OK: 500 timestamps aleatorios comparados, sin diferencias > 1e-06.
-Filas inferidas (sin NaN en features): 43865
-Total ALERTA_6H: 4947
-Total NORMAL: 38918
+Filas inferidas (sin NaN en features): 45346
+Total NORMAL: 40979
+Total PRECAUCIÓN: 901
+Total ALERTA: 3466
 ```
 
-**Distribución anual de alertas:**
+La corrida completa tarda ~16 s en un equipo de escritorio (el botón **Actualizar ahora** le da hasta 120 s).
 
-| Año | ALERTA_6H | NORMAL |
-|-----|-----------|--------|
-| 2017 | 943 | 6 497 |
-| 2018 | 1 359 | 7 164 |
-| 2019 | 709 | 3 744 |
-| 2020 | 112 | 1 733 |
-| 2021 | 324 | 4 550 |
-| 2022 | 256 | 3 568 |
-| 2023 | 83 | 472 |
-| 2024 | 139 | 963 |
-| 2025 | 609 | 6 510 |
-| 2026 | 413 | 3 717 |
+**Distribución anual de estados:**
+
+| Año | NORMAL | PRECAUCIÓN | ALERTA |
+|-----|--------|------------|--------|
+| 2017 | 6 619 | 135 | 686 |
+| 2018 | 7 319 | 173 | 1 031 |
+| 2019 | 3 806 | 87 | 560 |
+| 2020 | 1 760 | 6 | 79 |
+| 2021 | 4 599 | 47 | 228 |
+| 2022 | 3 624 | 39 | 161 |
+| 2023 | 481 | 6 | 68 |
+| 2024 | 976 | 7 | 119 |
+| 2025 | 6 623 | 173 | 323 |
+| 2026 | 5 172 | 228 | 211 |
+
+Los años con pocas horas (2020, 2023, 2024) son los de menor disponibilidad de estaciones: solo se infiere cuando hay al menos 2 estaciones y las 18 features completas.
 
 **Salida:** `data/processed/log_gateway_simulado.csv`.
 
@@ -733,10 +753,12 @@ streamlit run dashboard/app.py
 ```python
 UMBRAL_PRECAUCION = 0.30
 UMBRAL_ALERTA = 0.70
-RECALL_PRECAUCION = 0.714628
-PRECISION_PRECAUCION = 0.497496
-RECALL_ALERTA = 0.549161
-PRECISION_ALERTA = 0.860902
+RECALL_PRECAUCION = 0.717026      # métricas con proba >= umbral (10_metricas_ternario.py)
+PRECISION_PRECAUCION = 0.493399
+RECALL_ALERTA = 0.551559
+PRECISION_ALERTA = 0.861423
+CN = 81.1                         # importado de simulate/cuenca_la_honda_params.py (simulador)
+ZONA_HORARIA = "America/Bogota"   # hora y mes del simulador
 
 N_NODOS = 5
 
@@ -760,79 +782,70 @@ ANCLAS = [
 * **Estado actual de la quebrada:** semáforo con probabilidad y línea de acción según estado (NORMAL / PRECAUCIÓN / ALERTA).
 * **Lluvia acumulada:** tarjetas con últimas 24 h, 7 días y 30 días (promedio de las estaciones con dato).
 * **Mapa de la quebrada y sus puntos de monitoreo:** 5 nodos interpolados por longitud de arco entre las 3 anclas (Folium interactivo / Matplotlib estático).
-* **Historial de los últimos 90 días:** cuadrícula día a día; verde = solo NORMAL, amarillo = hubo PRECAUCIÓN, rojo = hubo ALERTA.
+* **Historial de los últimos 90 días:** cuadrícula día a día; verde = solo NORMAL, amarillo = hubo PRECAUCIÓN, rojo = hubo ALERTA, **gris = sin lecturas ese día** (menos de 2 estaciones reportando; no significa "sin riesgo"). Al 2026-10-07 hay 22 días grises (25-jul → 20-ago-2026).
 
 ### Vista Operador (JAC)
 
-* **Registro de lecturas recientes:** tabla con las últimas 100 filas de `log_gateway_simulado.csv` (nombres legibles).
+* **Registro de lecturas recientes:** tabla con las últimas 100 filas de `log_gateway_simulado.csv`, la más reciente arriba, con nombres legibles y 2 decimales.
 * **Comportamiento histórico de la cuenca:** gráfico dual-axis `P_basin` / `Q_scs_proxy` con marcadores de PRECAUCIÓN (amarillo) y ALERTA (rojo); selector de rango de fechas.
-* **Confiabilidad del sistema:** 4 métricas (recall/precisión para PRECAUCIÓN y ALERTA) calculadas sobre el split de test cronológico; fuente `simulate/10_metricas_ternario.py`.
+* **Confiabilidad del sistema:** 4 métricas (recall/precisión para PRECAUCIÓN y ALERTA) calculadas sobre el split de test cronológico con el mismo criterio `proba >= umbral` del semáforo; fuente `simulate/10_metricas_ternario.py`. No se recalculan en vivo.
 * **¿Qué factores pesan más en la alerta?:** feature importance con etiquetas legibles; expander "Detalle técnico" con info del modelo.
 * **Consultar un momento específico:** selector de fecha y hora; muestra estado, probabilidad y features con nombres legibles.
-* **Simular un escenario de lluvia:** sliders con nombres en español, 3 presets, botón "Simular" y semáforo de resultado.
+* **Simular un escenario de lluvia:** 6 controles de lluvia (última hora y acumulados de 3 a 48 h), 3 presets, botón "Simular" y semáforo de resultado (ver §7.2).
+
+En la barra lateral están la guía del proyecto (estructura y preguntas frecuentes) y el botón **Actualizar ahora** (§8.4).
 
 ### 7.2 Simulador interactivo
 
-Se encuentra en `_simulador_modelo()` dentro de `dashboard/app.py`.
+Se encuentra en `_simulador_modelo()` dentro de `dashboard/app.py`; la conversión de controles a features está en `features_simulador()`.
+
+**Controles (lluvia promedio de la cuenca, en mm; los acumulados incluyen la última hora):**
+
+```python
+_SIM_CONTROLES = [
+    ("sim_p1", "Lluvia en la última hora (mm)", 40.0),
+    ("sim_r3", "Lluvia acumulada 3 h (mm)", 60.0),
+    ("sim_r6", "Lluvia acumulada 6 h (mm)", 80.0),
+    ("sim_r12", "Lluvia acumulada 12 h (mm)", 100.0),
+    ("sim_r24", "Lluvia acumulada 24 h (mm)", 120.0),
+    ("sim_r48", "Lluvia acumulada 48 h (mm)", 150.0),
+]
+```
 
 **3 presets exactos:**
 
 ```python
 _ESCENARIOS = {
-    "🌧️ Lluvia fuerte sostenida": {
-        "sim_lag_1h": 15.0, "sim_lag_3h": 35.0, "sim_lag_6h": 45.0,
-        "sim_roll12": 40.0, "sim_roll24": 45.0, "sim_roll48": 48.0,
-        "sim_Q": 3.0,
-    },
-    "⛈️ Aguacero puntual": {
-        "sim_lag_1h": 25.0, "sim_lag_3h": 15.0, "sim_lag_6h": 5.0,
-        "sim_roll12": 5.0, "sim_roll24": 5.0, "sim_roll48": 2.0,
-        "sim_Q": 1.0,
-    },
-    "☀️ Normal": {
-        "sim_lag_1h": 0.0, "sim_lag_3h": 0.0, "sim_lag_6h": 0.0,
-        "sim_roll12": 0.0, "sim_roll24": 0.0, "sim_roll48": 0.0,
-        "sim_Q": 0.0,
-    },
+    "🌧️ Lluvia fuerte sostenida": {"sim_p1": 6.0, "sim_r3": 15.0, "sim_r6": 25.0,
+                                   "sim_r12": 35.0, "sim_r24": 45.0, "sim_r48": 55.0},
+    "⛈️ Aguacero puntual":        {"sim_p1": 8.0, "sim_r3": 10.0, "sim_r6": 10.0,
+                                   "sim_r12": 10.0, "sim_r24": 10.0, "sim_r48": 10.0},
+    "☀️ Normal":                  {todos en 0.0},
 }
 ```
 
-**Features derivadas aproximadas (no exactas, documentadas en el propio dashboard):**
+**Cómo se arman las 18 features (aproximación, documentada también en el propio dashboard):**
 
-```python
-x_vec = {
-    "P_basin":       lag_1h,
-    "Q_actual":      q_act,
-    "lag_1h":        lag_1h,
-    "lag_3h":        lag_3h,
-    "lag_6h":        lag_6h,
-    "lag_12h":       lag_6h * 0.5,
-    "lag_24h":       lag_6h * 0.25,
-    "Q_lag_1h":      q_act,
-    "Q_lag_3h":      q_act,
-    "Q_lag_6h":      q_act,
-    "roll_sum_3h":   (lag_1h + lag_3h) * 0.5,
-    "roll_sum_6h":   lag_6h,
-    "roll_sum_12h":  roll12,
-    "roll_sum_24h":  roll24,
-    "roll_sum_48h":  roll48,
-    "roll_max_6h":   lag_1h,
-    "hora_dia":      float(ahora.hour),
-    "mes":           float(ahora.month),
-}
-```
+* Los acumulados se fuerzan a ser crecientes (1 h ≤ 3 h ≤ … ≤ 48 h). Si el usuario pone, por ejemplo, menos lluvia en 24 h que en 6 h, se igualan a la ventana más corta y el dashboard lo avisa.
+* `roll_sum_3h … roll_sum_48h` = los acumulados; `P_basin` = la última hora.
+* Lluvias hora a hora, repartiendo cada tramo de forma pareja: `lag_1h = (r3 − p1)/2`, `lag_3h = (r6 − r3)/3`, `lag_6h = (r12 − r6)/6`, `lag_12h = (r24 − r12)/12`, `lag_24h = (r48 − r24)/24`; `roll_max_6h = max(p1, lag_1h, lag_3h)`.
+* Escorrentía con la misma fórmula SCS-CN del proxy (CN 81.1): `Q_actual = Q(r24)`; `Q_lag_h` usa el acumulado de 24 h estimado hace h horas (`r24 − lluvia de las últimas h + (r48 − r24)·h/24`).
+* `hora_dia` y `mes`: la hora actual **de Colombia** (`America/Bogota`), no la del servidor.
 
-> El preset “Lluvia fuerte sostenida” arroja una probabilidad real de aproximadamente **0.965** (96.5 %) con `hora_dia=14, mes=7`, según `dashboard/_check_fixes.py`. Eso dispara el estado **ALERTA** (umbral ternario `≥ 0.70`) con una confianza mucho mayor que ~77 %.
+> Con `hora_dia=14, mes=7` (`dashboard/_check_fixes.py`): "Lluvia fuerte sostenida" → 0.985 (**ALERTA**), "Aguacero puntual" → 0.565 (**PRECAUCIÓN**), "Normal" → 0.000 (**NORMAL**). El preset fuerte da ALERTA en cualquier hora y mes (0.94–0.995).
 
 ### 7.3 `dashboard/_check_fixes.py`
 
 Script de verificación que:
 
-1. Confirma que `_lluvia_acumulada()` usa `proxy["timestamp"].max()` y no la fecha del sistema.
+1. Confirma que `_lluvia_acumulada()` usa `proxy["timestamp"].max()` (no la fecha del sistema) y que 24 h ≤ 7 d ≤ 30 d.
 2. Confirma que `_mapa_folium()` usa `fit_bounds` y `pad = 0.015`.
-3. Confirma que existen `_simulador_modelo()` y `_ESCENARIOS` con 3 escenarios.
-4. Calcula la probabilidad del preset “Lluvia fuerte” y del escenario normal.
-5. Verifica que `vista_operador()` llama al simulador.
+3. Confirma que el calendario pinta en gris cada día sin lecturas (y que la leyenda incluye "Sin datos").
+4. Confirma que existen `_simulador_modelo()` y `_ESCENARIOS` con 3 escenarios coherentes, y que los presets dan ALERTA / PRECAUCIÓN / NORMAL.
+5. Confirma que acumulados incoherentes se ajustan a la ventana más corta.
+6. Verifica que `vista_operador()` llama al simulador.
+
+Las pruebas de `tests/` (pytest) cubren además el criterio `>=` de los umbrales, el calendario, el simulador y la deduplicación de la actualización en vivo.
 
 ---
 
@@ -840,22 +853,24 @@ Script de verificación que:
 
 ### 8.1 Entorno
 
-Se recomienda crear y activar un entorno virtual en la raíz del repo:
+Requiere **Python 3.12 o superior** (lo exigen numpy 2.5 y scipy 1.18 de `requirements.txt`); el proyecto se prueba con Python 3.14. Se recomienda crear y activar un entorno virtual en la raíz del repo (`venv/` o `.venv/`, ambos ignorados por Git):
 
 ```powershell
+python -m venv venv
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
-& .venv\Scripts\Activate.ps1
+& venv\Scripts\Activate.ps1
 ```
 
-Luego instalar dependencias. El único archivo de requerimientos es `requirements.txt` en la raíz; incluye las versiones exactas del entorno de entrenamiento y del dashboard.
+Luego instalar dependencias. `requirements.txt` tiene las versiones exactas del entorno de entrenamiento y del dashboard; `requirements-dev.txt` agrega las herramientas de desarrollo (pytest, ruff).
 
 ```bash
 pip install -r requirements.txt
+pip install -r requirements-dev.txt   # solo para correr pruebas
 ```
 
 ### 8.2 Orden de ejecución
 
-**Fase 1 — Extracción IDEAM (requiere internet):**
+**Fase 1 — Extracción IDEAM (requiere internet y `.env`, ver §8.3):**
 
 ```bash
 python scripts/01_buscar_estaciones.py
@@ -871,12 +886,20 @@ python simulate/06_etl_features.py
 python simulate/07_entrenar_modelo_6h.py
 python simulate/08_clasificador_6h.py
 python simulate/09_gateway_simulado.py
+python simulate/10_metricas_ternario.py   # métricas que muestra el dashboard
 ```
 
 **Fase 3 — Dashboard:**
 
 ```bash
 streamlit run dashboard/app.py
+```
+
+**Verificación:**
+
+```bash
+python dashboard/_check_fixes.py
+python -m pytest -q tests
 ```
 
 ### 8.3 Variables de entorno
@@ -893,35 +916,50 @@ En Windows PowerShell:
 Copy-Item .env.example .env
 ```
 
-Edita `.env` y completa al menos esta variable antes de ejecutar `02_pull_historico.py` o el botón **Actualizar ahora**:
+Edita `.env` y completa esta variable antes de ejecutar `02_pull_historico.py` o el botón **Actualizar ahora**:
 
 ```text
 SODAPY_APP_TOKEN=<tu-app-token-de-socrata>
 ```
 
-**Obligatoria:**
+En Streamlit Cloud, las mismas claves van en los *secrets* de la app (o en `.streamlit/secrets.toml` en local, también ignorado por Git); el dashboard las copia a variables de entorno al iniciar.
+
+**Credenciales de Socrata (se requiere una de las dos opciones):**
 
 | Variable | Script que la usa | Descripción |
 |----------|-------------------|-------------|
-| `SODAPY_APP_TOKEN` | `scripts/02_pull_historico.py`, `simulate/11_actualizar_ahora.py` | Token de la cuenta Socrata en datos.gov.co. Es suficiente para datos abiertos. |
+| `SODAPY_APP_TOKEN` | `scripts/02_pull_historico.py`, `simulate/11_actualizar_ahora.py` | Token de la cuenta Socrata en datos.gov.co. Opción recomendada; basta para datos abiertos. |
+| `SODAPY_USERNAME` + `SODAPY_PASSWORD` | `scripts/02_pull_historico.py`, `simulate/11_actualizar_ahora.py` | Usuario y contraseña de Socrata, solo si no usas app_token. |
 
-**Opcionales:**
+`scripts/01_buscar_estaciones.py` no usa credenciales (consulta el catálogo sin app_token).
 
-| Variable | Script que la usa | Descripción |
-|----------|-------------------|-------------|
-| `SODAPY_USERNAME` | `scripts/02_pull_historico.py`, `simulate/11_actualizar_ahora.py` | Usuario de Socrata (solo si no usás app_token) |
-| `SODAPY_PASSWORD` | `scripts/02_pull_historico.py`, `simulate/11_actualizar_ahora.py` | Contraseña de Socrata (solo si no usás app_token) |
+**Opcionales (prototipo IoT, futuro):**
+
+| Variable | Uso | Descripción |
+|----------|-----|-------------|
 | `WIFI_SSID` | Nodos IoT (futuro) | Red WiFi del prototipo ESP32 |
 | `WIFI_PASSWORD` | Nodos IoT (futuro) | Contraseña de red WiFi del prototipo |
 | `UBIDOTS_TOKEN` | Nodos IoT (futuro) | Token de Ubidots para publicación MQTT |
 
-Si falta `SODAPY_APP_TOKEN` (y no hay usuario/clave), el botón **Actualizar ahora** muestra:
+Si no hay `SODAPY_APP_TOKEN` ni usuario/contraseña, el botón **Actualizar ahora** muestra:
 
 ```text
 Falta SODAPY_APP_TOKEN en los secrets
 ```
 
-### 8.4 Seguridad y rotación de credenciales
+### 8.4 Actualización en vivo (botón "Actualizar ahora")
+
+El botón de la barra lateral ejecuta `actualizar_ahora()` de `simulate/11_actualizar_ahora.py`:
+
+1. Para Metromedellín y Olaya Herrera (Pajarito está suspendida) consulta en `s54a-sgyg` solo el rango desde la última lectura guardada hasta ahora, en hora de Colombia. Si `data/raw/` no existe (caso Streamlit Cloud, donde no se versiona), parte del último timestamp del proxy menos 72 h.
+2. Agrega las lecturas al CSV crudo sin duplicar por estación + sensor + timestamp.
+3. Corre `04` → `06` → `09`, fusionando el proxy nuevo con el anterior para no perder el histórico. Cada paso tiene un límite de 120 s.
+4. Regenera `data/processed/centinela.db` (tabla `lecturas`), una copia SQLite del log para consultas externas. **El dashboard no la lee**: lee los CSV.
+5. Muestra "N lecturas nuevas" o "Sin datos nuevos", la última lectura por estación y recuerda que el tablero usa la última hora con al menos 2 estaciones.
+
+Si cualquier paso falla (incluida la validación batch vs streaming del gateway), se muestra un mensaje corto sin trazas, se conservan los datos anteriores y el botón queda en pausa 60 s; tras una actualización exitosa, la pausa es de 10 min. En el plan gratuito de Streamlit Cloud no hay disco persistente: al "despertar", la app vuelve a los CSV del repositorio.
+
+### 8.5 Seguridad y rotación de credenciales
 
 - **Nunca subas `.env` a Git.** Ya está incluido en `.gitignore`.
 - Si sospechas que las credenciales Socrata se expusieron (por ejemplo, en un commit anterior), rótalas desde el panel de Socrata / datos.gov.co y actualiza solo tu `.env` local.
@@ -937,12 +975,15 @@ Solo se incluyen limitaciones confirmadas por el código o los datos:
 2. **Base de eventos históricos reducida.** `EVENTOS_CONOCIDOS = {}`; no hay fechas oficiales de avenidas torrenciales cargadas para validar el proxy.
 3. **CN estimado.** El CN compuesto de 81.1 depende de un reparto de área por tramo (40/30/30) y CN por tramo (70/92/85) que son supuestos de trabajo sin fuente oficial.
 4. **SCS-CN aplicado como evento único sobre serie continua.** El proxy usa acumulado 24 h sin reiniciar explícitamente eventos de lluvia; es una aproximación documentada.
-5. **Desbalance extremo.** Con `p90=0.0`, la clase positiva equivale a `target_6h > 0`, que representa ~8.9 % en entrenamiento y ~4.7 % en test.
+5. **Desbalance extremo.** Con `p90=0.0`, la clase positiva equivale a `target_6h > 0`, que representa ~8.9 % en entrenamiento y ~4.6 % en test.
 6. **No hay split aleatorio; es cronológico.** El test está fijado desde `2025-07-06 17:00` en adelante. Cualquier cambio estructural en los datos recientes afecta las métricas.
-7. **Recall aislado del clasificador no supera ~0.82.** A umbral 0.10 se alcanza 0.817; a 0.20 es 0.743 (corrida del 27-jul-2026). El diseño asume que el clasificador será una de varias fuentes en una regla de fusión multi-sensor. El estado PRECAUCIÓN (0.30–0.70) amplía la vigilancia sin disparar la alerta máxima.
+7. **Recall aislado del clasificador no supera ~0.82.** En el barrido del 27-jul-2026, a umbral 0.10 se alcanzó 0.817 y a 0.20, 0.743; con los datos vigentes, a 0.20 es 0.755. El diseño asume que el clasificador será una de varias fuentes en una regla de fusión multi-sensor. El estado PRECAUCIÓN (0.30–0.70) amplía la vigilancia sin disparar la alerta máxima.
 8. **Modelos y datos grandes están parcialmente versionados.** Tras la limpieza del repositorio se trackean solo `proxy_q_la_honda.csv`, `dataset_6h.csv`, `log_gateway_simulado.csv` y `simulate/models/clf_6h.joblib`; los datasets 12h/24h, `filas_baja_calidad.csv`, el modelo baseline y los archivos de `data/raw/` se regeneran o comparten por otro canal.
 9. **Capa física (LoRa, sensores, cámaras) no implementada.** Solo existe el simulador y la arquitectura documentada.
 10. **Prototipo IoT base documentado solo como referencia.** Los issues del sketch Wokwi (credenciales WiFi expuestas, `WiFiMulti`, umbral de temperatura) no se han resuelto en este repo.
+11. **Alertas sin lluvia reciente en algunas horas/meses.** La hora del día y el mes pesan en el modelo (~4.5 % y ~3.5 % de importancia), y en algunas combinaciones marca PRECAUCIÓN o ALERTA con 0 mm de lluvia. En el log histórico hay 61 ALERTA y 172 PRECAUCIÓN entre 14 315 horas con 0 mm en 24 h (1.8 % de todas las ALERTA). Corregirlo requiere reentrenar (por ejemplo, sin `hora_dia`/`mes` o con codificación cíclica) y recalcular todas las métricas.
+12. **Huecos de datos.** Solo se infiere cuando hay al menos 2 estaciones y las 18 features completas; si no, no hay lectura. El calendario muestra esos días en gris (22 días entre el 25-jul y el 20-ago-2026).
+13. **Los datos pueden quedar atrasados.** El tablero muestra la última lectura disponible con su fecha ("Datos al …"), pero no alerta por sí solo si esa fecha es vieja; en el plan gratuito, tras "dormirse", vuelve a los CSV del repositorio hasta que alguien pulse **Actualizar ahora**.
 
 ---
 
@@ -969,19 +1010,19 @@ Para uso bajo otros términos (por ejemplo, comercial): [b41r0nn@gmail.com](mail
 | CN por tramo alto/medio/bajo | 70 / 92 / 85 | `simulate/cuenca_la_honda_params.py` |
 | Mínimo estaciones | 2 | `LOW_QUALITY_MIN_ESTACIONES = 2` en `06` y `09` |
 | Horizontes generados | 6, 12, 24 h | `HORIZONTES = (6, 12, 24)` en `06` |
-| Split train/test | 80 / 20 cronológico (corte fijo 2025-07-06 16:00; train 35,316 filas, test 9,055 filas hasta 2026-09-30) | `06_etl_features.py` |
+| Split train/test | ≈80 / 20 cronológico (79.6 / 20.4; corte fijo 2025-07-06 16:00; train 35,316 filas, test 9,055 filas hasta 2026-09-30; regla inicial 82/18) | `06_etl_features.py` |
 | Estaciones usadas | 0027015290, 0027015310, 0027015330 | `04_scs_cn_proxy.py` |
 | Sensor canónico | 240 | `04_scs_cn_proxy.py` |
 | Sensor QA Olaya | 257 | `04_scs_cn_proxy.py` |
 | Sistema de alertas | NORMAL / PRECAUCIÓN / ALERTA | `dashboard/app.py` |
 | Umbral PRECAUCIÓN | 0.30 | `dashboard/app.py` (`UMBRAL_PRECAUCION`) |
 | Umbral ALERTA | 0.70 | `dashboard/app.py` (`UMBRAL_ALERTA`) |
-| Umbral binario gateway (histórico) | 0.20 | `09_gateway_simulado.py` |
-| Recall binario (umbral 0.20) | 0.752998 | `08_clasificador_6h.py` (barrido; referencia histórica binaria) |
-| Precisión binaria (umbral 0.20) | 0.415344 | `08_clasificador_6h.py` (barrido; referencia histórica binaria) |
-| Recall PRECAUCIÓN (umbral ≥0.30) | 0.714628 (~71.5 %) | `simulate/10_metricas_ternario.py` |
-| Precisión PRECAUCIÓN (umbral ≥0.30) | 0.497496 (~49.7 %) | `simulate/10_metricas_ternario.py` |
-| Recall ALERTA (umbral ≥0.70) | 0.549161 (~54.9 %) | `simulate/10_metricas_ternario.py` |
-| Precisión ALERTA (umbral ≥0.70) | 0.860902 (~86.1 %) | `simulate/10_metricas_ternario.py` |
+| Criterio de umbral | `proba >= umbral` | `dashboard/app.py`, `09_gateway_simulado.py`, `10_metricas_ternario.py` |
+| Recall referencia binaria (umbral ≥0.20) | 0.755396 | `simulate/10_metricas_ternario.py` (control) |
+| Precisión referencia binaria (umbral ≥0.20) | 0.406977 | `simulate/10_metricas_ternario.py` (control) |
+| Recall PRECAUCIÓN (umbral ≥0.30) | 0.717026 (~71.7 %) | `simulate/10_metricas_ternario.py` |
+| Precisión PRECAUCIÓN (umbral ≥0.30) | 0.493399 (~49.3 %) | `simulate/10_metricas_ternario.py` |
+| Recall ALERTA (umbral ≥0.70) | 0.551559 (~55.2 %) | `simulate/10_metricas_ternario.py` |
+| Precisión ALERTA (umbral ≥0.70) | 0.861423 (~86.1 %) | `simulate/10_metricas_ternario.py` |
 | Gateway validación | 500 timestamps, ε=1e-6 | `09_gateway_simulado.py` |
-| Alertas/NORMAL gateway | 5 028 / 40 167 | `09_gateway_simulado.py` |
+| Estados del log (NORMAL / PRECAUCIÓN / ALERTA) | 40 979 / 901 / 3 466 (45 346 horas, datos al 2026-10-07) | `09_gateway_simulado.py` |

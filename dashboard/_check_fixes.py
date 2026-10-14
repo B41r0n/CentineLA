@@ -13,23 +13,25 @@ import pandas as pd
 
 proxy = pd.read_csv(BASE_DIR / "data" / "processed" / "proxy_q_la_honda.csv", parse_dates=["timestamp"])
 proxy = proxy.sort_values("timestamp").reset_index(drop=True)
+log = pd.read_csv(BASE_DIR / "data" / "processed" / "log_gateway_simulado.csv", parse_dates=["timestamp"])
+log["estado"] = log["proba_alerta"].apply(app.clasificar_estado)
 import joblib
 modelo = joblib.load(BASE_DIR / "simulate" / "models" / "clf_6h.joblib")
 
-print("=== FIX 1 ===")
-ult_24h, ult_30d, anio_mm, ref_fecha = app._lluvia_acumulada(proxy)
+print("=== FIX 1 - Lluvia acumulada ===")
+ult_24h, ult_7d, ult_30d, ref_fecha = app._lluvia_acumulada(proxy)
 print(f"  ref_fecha (de proxy.max, NO del reloj): {ref_fecha}")
-print(f"  ult_24h = {ult_24h:.3f}  (0.0 = genuinamente sin lluvia el ultimo dia)")
-print(f"  ult_30d = {ult_30d:.3f}  (no 0 -> ventana de 30d captura algo de lluvia)")
-print(f"  anio    = {anio_mm:.3f}  (acumulado del anio en curso)")
+print(f"  ult_24h = {ult_24h:.3f}")
+print(f"  ult_7d  = {ult_7d:.3f}")
+print(f"  ult_30d = {ult_30d:.3f}")
 assert isinstance(ref_fecha, str) and len(ref_fecha) == 10 and ref_fecha[4] == "-" and ref_fecha[7] == "-", \
     f"ref_fecha debe ser YYYY-MM-DD, se obtuvo: {ref_fecha}"
 assert ref_fecha == str(proxy["timestamp"].max().date()), \
     "ref_fecha debe coincidir con proxy.max(), no con una fecha fija"
-assert ult_24h >= 0 and ult_30d >= 0 and anio_mm > 0, "año debe ser >0"
-print("  OK: rolling windows correctos, ref_fecha es proxy.max(), anio > 0")
+assert 0 <= ult_24h <= ult_7d <= ult_30d, "las ventanas deben ser crecientes (24 h <= 7 d <= 30 d)"
+print("  OK: ventanas deslizantes crecientes y ref_fecha es proxy.max()")
 
-print("\n=== FIX 2 ===")
+print("\n=== FIX 2 - Mapa ===")
 import inspect
 src = inspect.getsource(app._mapa_folium)
 assert "fit_bounds" in src, "debe usar fit_bounds"
@@ -37,49 +39,45 @@ assert "pad = 0.015" in src, "debe tener padding"
 print("  fit_bounds presente en _mapa_folium: OK")
 print("  padding definido: OK")
 
+print("\n=== FIX 3 - Calendario: días sin lecturas en gris ===")
+html_cal = app._calendario_html(log, n_dias=90)
+ultima = log["timestamp"].dt.date.max()
+dias = pd.date_range(ultima - pd.Timedelta(days=89), ultima, freq="D").date
+sin_datos = sum(d not in set(log["timestamp"].dt.date) for d in dias)
+celdas_grises = html_cal.count("sin datos\"")
+print(f"  días sin lecturas en la ventana: {sin_datos} | celdas grises: {celdas_grises}")
+assert celdas_grises == sin_datos, "cada día sin lecturas debe pintarse gris, no verde"
+assert "Sin datos" in html_cal, "la leyenda debe incluir 'Sin datos'"
+print("  OK")
+
 print("\n=== FEATURE simulador ===")
 assert hasattr(app, "_simulador_modelo"), "_simulador_modelo debe existir"
 assert hasattr(app, "_ESCENARIOS"), "_ESCENARIOS debe existir"
 assert len(app._ESCENARIOS) == 3, "deben ser 3 escenarios"
 print("  _simulador_modelo y _ESCENARIOS presentes: OK")
 
-escenario_lluvia = list(app._ESCENARIOS.values())[0]
-x_test = {
-    "P_basin":       escenario_lluvia["sim_lag_1h"],
-    "Q_actual":      escenario_lluvia["sim_Q"],
-    "lag_1h":        escenario_lluvia["sim_lag_1h"],
-    "lag_3h":        escenario_lluvia["sim_lag_3h"],
-    "lag_6h":        escenario_lluvia["sim_lag_6h"],
-    "lag_12h":       escenario_lluvia["sim_lag_6h"] * 0.5,
-    "lag_24h":       escenario_lluvia["sim_lag_6h"] * 0.25,
-    "Q_lag_1h":      escenario_lluvia["sim_Q"],
-    "Q_lag_3h":      escenario_lluvia["sim_Q"],
-    "Q_lag_6h":      escenario_lluvia["sim_Q"],
-    "roll_sum_3h":   (escenario_lluvia["sim_lag_1h"] + escenario_lluvia["sim_lag_3h"]) * 0.5,
-    "roll_sum_6h":   escenario_lluvia["sim_lag_6h"],
-    "roll_sum_12h":  escenario_lluvia["sim_roll12"],
-    "roll_sum_24h":  escenario_lluvia["sim_roll24"],
-    "roll_sum_48h":  escenario_lluvia["sim_roll48"],
-    "roll_max_6h":   escenario_lluvia["sim_lag_1h"],
-    "hora_dia":      14.0,
-    "mes":           7.0,
-}
-x_df = pd.DataFrame([x_test])[app.FEATURE_COLS]
-proba = float(modelo.predict_proba(x_df)[0, 1])
-estado = "ALERTA_6H" if proba > app.UMBRAL_ALERTA else "NORMAL"
-print(f"  Escenario lluvia fuerte: proba={proba:.4f}  estado={estado}")
-assert 0 <= proba <= 1, "proba debe estar en [0,1]"
+ts_ref = pd.Timestamp(2026, 7, 1, 14)  # hora_dia=14, mes=7
+resultados = {}
+for nombre, valores in app._ESCENARIOS.items():
+    x, ajustado = app.features_simulador(valores, ts_ref)
+    assert not ajustado, f"el preset {nombre!r} debe ser coherente (acumulados crecientes)"
+    x_df = pd.DataFrame([x])[app.FEATURE_COLS]
+    proba = float(modelo.predict_proba(x_df)[0, 1])
+    assert 0 <= proba <= 1, "proba debe estar en [0,1]"
+    resultados[nombre] = (proba, app.clasificar_estado(proba))
+    print(f"  {nombre}: proba={proba:.4f}  estado={resultados[nombre][1]}")
 
-x_normal = {k: 0.0 for k in x_test}
-x_normal["hora_dia"] = 14.0
-x_normal["mes"] = 7.0
-x_normal["Q_actual"] = 0.0
-x_normal["Q_lag_1h"] = x_normal["Q_lag_3h"] = x_normal["Q_lag_6h"] = 0.0
-xn_df = pd.DataFrame([x_normal])[app.FEATURE_COLS]
-proba_n = float(modelo.predict_proba(xn_df)[0, 1])
-estado_n = "ALERTA_6H" if proba_n > app.UMBRAL_ALERTA else "NORMAL"
-print(f"  Escenario normal: proba={proba_n:.4f}  estado={estado_n}")
+fuerte, aguacero, normal = (resultados[n][1] for n in app._ESCENARIOS)
+assert fuerte == "ALERTA", "Lluvia fuerte sostenida debe dar ALERTA"
+assert normal == "NORMAL", "Normal debe dar NORMAL con hora_dia=14, mes=7"
 print("  predict_proba sin errores: OK")
+
+x_inc, ajustado = app.features_simulador(
+    {"sim_p1": 5, "sim_r3": 5, "sim_r6": 30, "sim_r12": 10, "sim_r24": 10, "sim_r48": 10}, ts_ref
+)
+assert ajustado and x_inc["roll_sum_12h"] == 30 and x_inc["roll_sum_48h"] == 30, \
+    "acumulados incoherentes deben ajustarse a la ventana más corta"
+print("  ajuste de acumulados incoherentes: OK")
 
 print("\n=== VISTA OPERADOR tiene _simulador_modelo ===")
 src_op = inspect.getsource(app.vista_operador)
