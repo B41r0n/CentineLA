@@ -67,7 +67,7 @@ CUENCA ALTA                         TRAMO MEDIO                         TRAMO BA
 | **Broker MQTT / WhatsApp** | Canal de alerta a la comunidad y a DAGRD. |
 | **Dashboard Streamlit** | Vista pública + vista operador para JAC; consume el log del gateway y el modelo `clf_6h.joblib`. |
 
-**Piloto de la Fase 3 (cédula):** 1 pluviómetro en la cuenca alta, 3 nodos de cauce en el tramo medio cada ~500 m (ultrasónico, turbidez, semáforo LED, sirena y panel solar; el del medio además con cámara IP) y 1 gateway en una sede comunitaria. Es lo que muestra el mapa del dashboard. Cubrir todo el cauce (6.2 km) requiere un nodo cada ~500 m.
+**Piloto de la Fase 3 (cédula):** 1 pluviómetro en la cuenca alta, 3 nodos de cauce en el tramo medio cada ~500 m (ultrasónico, turbidez, semáforo LED, sirena y panel solar; el del medio además con cámara IP) y 1 gateway en una sede comunitaria. Es lo que muestra el mapa del dashboard. Cubrir todo el cauce (6.2 km) requiere un nodo cada ~500 m. Cómo se integrarán sus datos al modelo y a la regla de alerta: §10.
 
 > En el repositorio actual, la capa física aún no está implementada. Lo que existe es la **línea de datos IDEAM → proxy → ML → gateway simulado → dashboard**.
 
@@ -114,6 +114,7 @@ CentineLA/
 │   ├── 09_gateway_simulado.py              # Gateway simulado en modo streaming
 │   ├── 10_metricas_ternario.py             # Recall/precisión de los umbrales 0.30 / 0.70 (fuente de las métricas del dashboard)
 │   ├── 11_actualizar_ahora.py              # Actualización en vivo desde IDEAM (botón "Actualizar ahora")
+│   ├── 12_variabilidad_lluvia.py           # Diferencias de lluvia entre estaciones IDEAM (argumento del pluviómetro local, §10.1)
 │   ├── reglas_alerta.py                    # Umbrales 0.30/0.70 y regla de lluvia seca (única fuente para dashboard, 09 y 10)
 │   └── models/                             # Trackeado para deploy
 │       └── clf_6h.joblib
@@ -1011,7 +1012,7 @@ Solo se incluyen limitaciones confirmadas por el código o los datos:
 6. **No hay split aleatorio; es cronológico.** El test está fijado desde `2025-07-06 17:00` en adelante. Cualquier cambio estructural en los datos recientes afecta las métricas.
 7. **Recall aislado del clasificador no supera ~0.82.** En el barrido del 27-jul-2026, a umbral 0.10 se alcanzó 0.817 y a 0.20, 0.743; con los datos vigentes, a 0.20 es 0.755. El diseño asume que el clasificador será una de varias fuentes en una regla de fusión multi-sensor. El estado PRECAUCIÓN (0.30–0.70) amplía la vigilancia sin disparar la alerta máxima.
 8. **Modelos y datos grandes están parcialmente versionados.** Tras la limpieza del repositorio se trackean solo `proxy_q_la_honda.csv`, `dataset_6h.csv`, `log_gateway_simulado.csv` y `simulate/models/clf_6h.joblib`; los datasets 12h/24h, `filas_baja_calidad.csv`, el modelo baseline y los archivos de `data/raw/` se regeneran o comparten por otro canal.
-9. **Capa física (LoRa, sensores, cámaras) no implementada.** Solo existe el simulador y la arquitectura documentada.
+9. **Capa física (LoRa, sensores, cámaras) no implementada.** Solo existe el simulador y la arquitectura documentada; el diseño de integración de los datos de campo está en §10.
 10. **Prototipo IoT base documentado solo como referencia.** Los issues del sketch Wokwi (credenciales WiFi expuestas, `WiFiMulti`, umbral de temperatura) no se han resuelto en este repo.
 11. **El modelo, por sí solo, da avisos en horas sin lluvia; lo corrige una regla, no el modelo.** La hora del día y el mes pesan en el clasificador (~4.5 % y ~3.5 % de importancia), y en algunas combinaciones da PRECAUCIÓN o ALERTA con 0 mm en 24 h (233 avisos en el histórico, ninguno acertado en la ventana de prueba). La regla de lluvia seca (§5.2) los anula sin perder detecciones en 0.30/0.70, pero el modelo sigue sin estar calibrado en esas horas: si se reentrena, conviene evaluar quitar `hora_dia`/`mes` o regularizar los árboles, y revisar si la regla sigue siendo necesaria.
 12. **Huecos de datos.** Solo se infiere cuando hay al menos 2 estaciones y las 18 features completas; si no, no hay lectura. Justo después de un hueco, los acumulados (hasta 48 h) se calculan con las horas disponibles, así que pueden subestimar la lluvia real; el ETL y el gateway lo hacen igual, así que es coherente con el entrenamiento. El calendario muestra esos días en gris (22 días entre el 25-jul y el 20-ago-2026).
@@ -1019,7 +1020,201 @@ Solo se incluyen limitaciones confirmadas por el código o los datos:
 
 ---
 
-## 10. Licencia
+## 10. Fase 3: integración de los sensores de campo
+
+> **Estado: diseño propuesto, no implementado.** Describe cómo entrarán al sistema los datos del piloto (1 pluviómetro en la cuenca alta, 3 nodos de cauce en el tramo medio y 1 gateway) una vez instalados. Los umbrales de campo (`N_alerta`, `N_afectación`, `V_crit`, `I_crit`) se fijan en la visita técnica.
+
+### 10.1 Por qué los datos de campo mejoran la precisión
+
+Hoy el sistema solo ve lluvia regional. Sus errores vienen de cuatro fuentes y cada sensor ataca una:
+
+| Fuente de error actual | Efecto en las alertas | Qué la corrige |
+|---|---|---|
+| **Lluvia medida lejos de la cuenca.** Las estaciones están a 5.7–6.7 km de La Honda y la lluvia de ladera es muy local. | Falsas alarmas cuando llueve en la estación y no en la cuenca; avisos perdidos cuando el aguacero cae solo sobre la cuenca alta. | Pluviómetro propio en la cuenca alta (`P_local`). |
+| **El modelo no ve el estado de la quebrada.** Su "memoria" es la escorrentía estimada (`Q_actual`, `Q_lag_*`), calculada con la misma lluvia regional. | No distingue una lluvia que encuentra el cauce en caudal base de una que llega con el cauce ya crecido. | Nivel ultrasónico (`h`, `dh/dt`) y turbidez. |
+| **La etiqueta es un proxy.** "Hora de riesgo" = escorrentía SCS-CN > 0 a 6 h, con la misma lluvia regional. | La precisión publicada (57.6 % / 86.8 %) mide acuerdo con el proxy, no cuántas alertas coinciden con agua subiendo de verdad. | Nivel observado como verdad de terreno: etiqueta y métricas contra crecientes reales. |
+| **CN estimado (81.1).** Un ±3.4 % en el CN mueve el umbral de escorrentía de 11.8 mm a 9.8–14.0 mm. | Umbral de "hora de riesgo" desplazado en toda la serie. | Calibración del CN con el inicio de respuesta del nivel (§10.5). |
+
+**Evidencia en los datos actuales** (`python simulate/12_variabilidad_lluvia.py`). Se compararon las estaciones IDEAM entre sí contando solo días con las 24 h registradas y lluvia en ambas, para no confundir variabilidad real con fallas de instrumento:
+
+| Par de estaciones | Distancia | Días con lluvia en ambas | Días en que alguna supera 11.8 mm | … en que solo una lo supera | Correlación diaria |
+|---|---|---|---|---|---|
+| Pajarito – Olaya Herrera | 7.4 km | 477 | 145 | 81 (56 %) | 0.63 |
+| Metromedellín – Olaya Herrera | 12.3 km | 227 | 64 | 48 (75 %) | 0.29 |
+
+La Honda queda a 5.7–6.7 km de cada estación. Si a 7–12 km la mitad o más de los días de lluvia fuerte solo una estación cruza el umbral de escorrentía, el promedio regional (`P_basin`) no puede decir con confianza si se cruzó en la cuenca. Esa incertidumbre está hoy en las features **y** en la etiqueta.
+
+**Por qué la fusión sube la precisión.** La alerta roja confirmada exige al menos 2 señales críticas de fuentes distintas (§10.4). Si las falsas alarmas de cada fuente fueran independientes, la tasa de falsas alarmas rojas sería aproximadamente el producto:
+
+```text
+P(falsa alarma roja) ≈ P(falsa alarma del modelo) × P(señal física falsa | sin creciente)
+```
+
+Una lluvia que cae lejos de la cuenca y un objeto bajo el sensor de nivel son errores de causa distinta y rara vez coinciden. No son del todo independientes (una lluvia regional fuerte también hace más probable algo de subida), por eso el diseño usa sensores de física distinta (lluvia, nivel, turbidez, cámara) y la ganancia real se mide en campo.
+
+**El costo es anticipación.** La confirmación física llega cuando el agua empieza a subir, así que el rojo confirmado avisa más tarde que el pronóstico de 6 h. Por eso hay dos capas: el amarillo sigue saliendo del modelo de lluvia (horas de anticipación) y el rojo exige confirmación (confiabilidad). Cuánto se gana en precisión y cuánto se pierde en anticipación se mide con los primeros eventos (§10.6); hoy no hay datos para dar una cifra honesta.
+
+### 10.2 Flujo de datos
+
+```mermaid
+flowchart LR
+    subgraph Campo
+        PL["Pluviómetro<br/>cuenca alta"]
+        N1["Nodo 1<br/>nivel + turbidez"]
+        N2["Nodo 2<br/>nivel + turbidez + cámara"]
+        N3["Nodo 3<br/>nivel + turbidez"]
+    end
+    PL & N1 & N2 & N3 -- "LoRa 915 MHz" --> GW["Gateway RPi4<br/>ingesta + control de calidad"]
+    GW --> DB[("SQLite<br/>lecturas_campo")]
+    IDEAM["IDEAM<br/>datos.gov.co"] --> FE
+    DB --> FE["Variables<br/>5 min y 1 h"]
+    FE --> M1["M_lluvia<br/>pronóstico 6 h"]
+    FE --> M2["M_campo<br/>corto plazo 1–2 h"]
+    M1 & M2 & FE --> FU["Regla de fusión<br/>≥2 señales"]
+    FU --> S["Semáforo y sirena"]
+    FU --> W["WhatsApp / SMS / DAGRD"]
+    FU --> D["Dashboard"]
+    FU --> SI["Feed SIATA"]
+```
+
+**Medición en el nodo (ESP32):**
+
+* **Nivel:** el JSN-SR04T mide la distancia `d` al agua; `h = H_sensor − d`, con `H_sensor` medida en la instalación. Cada minuto toma 5 lecturas y usa la mediana (descarta ecos de gotas u hojas). La velocidad del sonido cambia ~0.18 % por °C (`c ≈ 331.3 + 0.606·T` m/s): a 2 m de altura, 10 °C de diferencia son ~3.5 cm, así que se compensa con la temperatura local. Tiene zona ciega de ~25 cm: se monta de modo que el nivel máximo esperado quede por debajo.
+* **Turbidez:** lectura analógica (ADC del ESP32) promediada en 10 s. El sensor óptico económico se satura con agua muy cargada, por eso se usa su cambio relativo frente a la línea base (`turb_rel`), no NTU absolutos.
+* **Lluvia:** el pluviómetro de balancín cierra un contacto por basculada (típicamente 0.2794 mm en kits de este tipo; se confirma con calibración volumétrica); el ESP32 las cuenta por interrupción con antirrebote.
+* **Cámara (nodo central):** el gateway lee la regla pintada con OpenCV; confirma o invalida la lectura ultrasónica del mismo nodo, no cuenta como señal aparte.
+
+**Transmisión (LoRa 915 MHz):** paquetes binarios de ~20 bytes (`nodo`, `secuencia`, `h_cm`, `turb`, `basculadas`, `bateria_mv`, `banderas`). Cada 5 min en condiciones normales y cada minuto si `dh/dt` o la lluvia superan un umbral: más resolución justo cuando importa y poco consumo el resto del tiempo. El número de secuencia detecta paquetes perdidos y el gateway pone la marca de tiempo al recibir (America/Bogota), así los nodos no necesitan reloj sincronizado.
+
+**Recepción y control de calidad (gateway):** cada lectura se guarda en SQLite (`lecturas_campo`: `ts, nodo, h_cm, turb, lluvia_mm, bateria_mv, rssi, snr, qc`) y se publica por MQTT (`centinela/nodo/<id>`). Una lectura que falla el control queda marcada y **no cuenta como señal**:
+
+| Regla | Condición | Acción |
+|---|---|---|
+| Rango físico | `h` fuera de `[0, H_sensor − 0.25 m]` | Descartar |
+| Salto imposible | `abs(Δh)` entre lecturas mayor que la tasa máxima física (calibrada en campo) | Marcar y confirmar con la lectura siguiente |
+| Valor congelado | Lectura idéntica durante horas mientras llueve en la cuenca | Sensor sospechoso. Es el tipo de falla que muestran las series IDEAM, como el hueco de 2019 de Metromedellín reportado en ceros |
+| Nodo caído | Más de 15 min sin paquetes | Aviso al operador; si no queda ningún nodo válido, modo degradado (§10.4) |
+| Coherencia espacial | Sube un nodo aguas abajo sin subir el de aguas arriba ni llover | Sospechoso; verificar con la cámara |
+| Batería | Por debajo del umbral | Aviso de mantenimiento |
+
+**Agregación:** dos resoluciones. 5 min para la regla de fusión (reacción rápida) y 1 h para los modelos, en la misma grilla horaria de hoy, para unirse con las features IDEAM por `timestamp`.
+
+### 10.3 Variables nuevas
+
+| Variable | Definición | Para qué |
+|---|---|---|
+| `P_local`, `P_local_roll_{3,6,12,24,48}h` | Lluvia del pluviómetro de la cuenca alta, misma construcción que `P_basin` | Lluvia donde realmente cae |
+| `h_rel_<nodo>` | `h − h_base`, con `h_base` = percentil 10 de los últimos 7 días | Nivel sobre el caudal base, comparable entre nodos y temporadas |
+| `dh_15min`, `dh_1h` | Cambio de `h_rel` en 15 min y en 1 h (cm/h) | Velocidad de subida, la firma de una avenida torrencial |
+| `h_max_1h` | Máximo de `h_rel` en la última hora | Pico reciente |
+| `turb_rel` | Turbidez / mediana de las últimas 24 h | Frente de sedimento que suele preceder la onda |
+| `Q_obs` (si hay aforos) | Caudal por curva de gasto `Q = a·(h − h0)^b` | Calibrar el CN en volumen, no solo en el inicio de respuesta |
+
+Mismas reglas que hoy: solo ventanas hacia atrás (sin fuga de datos), y el motor en streaming de `09` las calcula con `deque`, validado contra el batch con la misma tolerancia `1e-6`.
+
+### 10.4 Regla de fusión
+
+Señales críticas (umbrales por nodo, definidos con la regla pintada y la cota del muro en la visita técnica):
+
+| Señal | Fuente | Condición crítica |
+|---|---|---|
+| Pronóstico | `M_lluvia` (modelo actual) | `p_6h ≥ 0.70`, después de la regla de lluvia seca |
+| Lluvia local | Pluviómetro de la cuenca alta | Intensidad en 1 h ≥ `I_crit`, o acumulado de 24 h sobre el umbral de escorrentía calibrado |
+| Nivel (por nodo) | Ultrasónico (+ cámara en el nodo central) | `h_rel ≥ N_alerta` o `dh_15min ≥ V_crit`, en 2 lecturas seguidas |
+| Turbidez | Sensor óptico | `turb_rel ≥ k` (por ejemplo, 3 veces la mediana de 24 h) |
+
+* **Sin alerta:** ninguna señal crítica y `p_6h < 0.30`.
+* **Precaución:** `p_6h ≥ 0.30` o exactamente una señal crítica. Un pronóstico ≥ 0.70 sin confirmación queda aquí, marcado como "pronóstico de alerta".
+* **Alerta roja confirmada:** al menos 2 señales críticas de fuentes distintas en una ventana de 30 min, una de ellas medida en el cauce (nivel o turbidez). El nivel en dos nodos distintos cuenta como dos fuentes, así una creciente evidente dispara rojo aunque el modelo no la haya visto.
+* **Histéresis:** se sale del rojo solo cuando no hay señales críticas durante 30 min y `h_rel < N_alerta − margen`, para que el semáforo no parpadee en la recesión.
+* **Modo degradado:** si ningún nodo pasa el control de calidad, el sistema vuelve a la escala actual (solo modelo: `p_6h ≥ 0.70` = rojo) y el tablero muestra "sin confirmación de campo". Un sensor caído nunca silencia un aviso.
+
+Esquema de la función que se agregaría a `simulate/reglas_alerta.py` (sin la histéresis, que se aplica sobre la secuencia de estados):
+
+```python
+FUENTES_EN_CAUCE = ("nivel:", "turbidez")
+
+def evaluar_fusion(p_6h: float, senales: set[str], hay_nodos_validos: bool) -> str:
+    """senales: fuentes críticas que pasaron el control de calidad,
+    p. ej. {"lluvia_local", "nivel:n2"}. p_6h ya pasó por ajustar_proba()."""
+    if not hay_nodos_validos:
+        return clasificar_estado(p_6h)          # modo degradado: escala actual
+    criticas = set(senales)
+    if p_6h >= UMBRAL_ALERTA:
+        criticas.add("modelo")
+    en_cauce = any(s.startswith(FUENTES_EN_CAUCE) for s in criticas)
+    if len(criticas) >= 2 and en_cauce:
+        return "ALERTA"
+    if criticas or p_6h >= UMBRAL_PRECAUCION:
+        return "PRECAUCIÓN"
+    return "NORMAL"
+```
+
+### 10.5 Cómo se comporta el algoritmo con los datos nuevos
+
+**Etapa 0 — instalación (primeras semanas).** Sin historia de nivel no se puede entrenar nada con sensores. `M_lluvia` (el clasificador actual, `clf_6h.joblib`) sigue igual y los sensores entran solo a la regla de fusión con umbrales físicos. Se registra la línea base de cada nodo (`h_base`, turbidez, ruido) y la tasa de paquetes perdidos. El sistema corre en **modo sombra**: el semáforo público sigue la escala actual, más cualquier nivel crítico medido (nunca menos protector que hoy), mientras la fusión se calcula y se guarda en paralelo para compararla.
+
+**Etapa 1 — calibración (primera temporada de lluvias).**
+
+1. **Representatividad de la lluvia regional:** regresión `P_local ~ P_basin` para medir cuánto se parece la lluvia del IDEAM a la de la cuenca.
+2. **CN calibrado:** en cada evento se mide la lluvia local acumulada en 24 h cuando el nivel empieza a responder (abstracción inicial observada, `Ia_obs`). Como `Ia = 0.2·S` y `S = 25400/CN − 254`:
+
+   ```text
+   CN = 25400 / (254 + 5·Ia_obs)
+   ```
+
+   Con el valor actual (`Ia` = 11.84 mm) da 81.1; si la cuenca responde, por ejemplo, desde 8 mm, el CN sería 86.4. El CN calibrado recalcula el proxy de toda la serie (`04` → `06`) y se reentrena `M_lluvia`, lo que cambia todas las cifras publicadas.
+3. **Etiqueta medida:** "el nivel supera `N_afectación` en las próximas h horas" reemplaza a la escorrentía estimada, así las métricas pasan a medirse contra crecientes reales.
+
+**Etapa 2 — reentrenamiento (con decenas de eventos).** Dos modelos en lugar de uno:
+
+* **`M_lluvia` (anticipación, 6 h):** el actual, con el CN calibrado. Es el único con 10 años de historia, así que sigue dando el amarillo con horas de anticipación.
+* **`M_campo` (corto plazo, 1–2 h):** usa `h_rel`, `dh_*`, `turb_rel`, `P_local_*` y la probabilidad `p_6h` de `M_lluvia` como entrada. Con pocos eventos empieza como regresión logística de 4–5 variables (menos riesgo de sobreajuste) y pasa a Random Forest o `HistGradientBoostingClassifier` con restricciones monótonas (`monotonic_cst`: más lluvia o más nivel nunca bajan la probabilidad) cuando haya suficientes eventos.
+* **Por qué no un solo modelo con NaN en los años sin sensores:** scikit-learn lo permite, pero el modelo aprendería a distinguir "época sin sensores" en vez de la física del evento.
+* **Probabilidades calibradas** (`CalibratedClassifierCV` con validación temporal), para que 0.30 y 0.70 sigan significando lo mismo.
+* **Validación por evento** (dejar un evento completo fuera) en vez de por hora: las horas de un mismo evento no son independientes y con pocos eventos la validación por hora sobreestima.
+
+**Qué cambia en el comportamiento:**
+
+* La importancia de variables se desplaza hacia el estado medido de la quebrada (`h_rel`, `dh_*`), como hoy `Q_actual` y `Q_lag_1h` suman ~23 %, pero medido y no derivado de lluvia regional. La lluvia sigue aportando la anticipación.
+* La regla de lluvia seca probablemente sobre: con nivel, el modelo ya sabe que la quebrada está en caudal base. Se reevalúa con datos (§9, punto 11).
+
+| Escenario | Hoy (solo lluvia regional) | Con sensores y fusión |
+|---|---|---|
+| Llueve fuerte en una estación IDEAM pero no en la cuenca | `p_6h` alto → alerta roja falsa | Sin lluvia local ni subida de nivel → precaución ("pronóstico de alerta") |
+| Aguacero sobre la cuenca alta que las estaciones no registran | `p_6h` bajo → aviso perdido | Lluvia local crítica + subida de nivel → alerta roja confirmada |
+| Creciente pronosticada | Rojo por pronóstico, sin confirmación | Amarillo por pronóstico con horas de anticipación; rojo confirmado cuando sube el nivel |
+| Sensor con falla (congelado o caído) | No aplica | El control de calidad lo excluye; si no queda ningún nodo, modo degradado |
+| Después del pico | El aviso baja cuando baja la lluvia acumulada | Histéresis: rojo hasta que el nivel baje y se mantenga 30 min |
+
+### 10.6 Cómo se medirá la mejora
+
+Métricas por evento, contra el nivel observado:
+
+* **Eventos detectados:** % de eventos con rojo confirmado antes de `N_afectación`.
+* **Anticipación:** mediana de minutos entre el aviso (amarillo y rojo por separado) y `N_afectación`.
+* **Falsas alarmas rojas por mes.**
+* **Precisión y recall horarios contra nivel real**, comparables con las cifras de hoy pero contra la realidad.
+* **Disponibilidad:** % del tiempo con cada nodo válido.
+
+Sobre los mismos eventos se comparan tres variantes: solo `M_lluvia` (hoy), solo umbrales físicos y fusión. Esa comparación, no una suposición, dice cuánto mejora la precisión.
+
+### 10.7 Cambios previstos en el código
+
+| Archivo | Cambio |
+|---|---|
+| `gateway/ingesta_lora.py` (nuevo) | Lee la radio LoRa (por USB o MQTT), decodifica, aplica el control de calidad y escribe `lecturas_campo` |
+| `simulate/reglas_alerta.py` | `evaluar_fusion()`, histéresis y umbrales por nodo leídos de un archivo de configuración |
+| `simulate/06_etl_features.py` | Une los agregados horarios de campo, agrega las variables de §10.3 y la etiqueta de nivel |
+| `simulate/09_gateway_simulado.py` | Nuevas `deque` para nivel, turbidez y lluvia local; la validación batch vs streaming cubre las variables nuevas |
+| `simulate/13_modelo_campo.py` (nuevo) | Entrena y calibra `M_campo` con validación por evento |
+| `simulate/10_metricas_ternario.py` | Métricas por evento de §10.6 |
+| `dashboard/app.py` | Tarjeta "Lecturas de campo" (nivel, turbidez, lluvia local, batería y estado de cada nodo) y semáforo que distingue "pronóstico" de "confirmada" |
+| `tests/` | Control de calidad, tabla de verdad de la fusión, histéresis y modo degradado |
+
+---
+
+## 11. Licencia
 
 Copyright (C) 2026 Bairon Nicolás Calle Rivera.
 Este software se distribuye bajo la licencia **GNU AGPL-3.0** (ver [`LICENSE`](LICENSE)).

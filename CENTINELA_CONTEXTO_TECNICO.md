@@ -76,6 +76,8 @@ CUENCA ALTA                    TRAMO MEDIO                  TRAMO BAJO
 
 **Fusión de datos → decisión:** el modelo pondera cada fuente. Regla de alerta roja: ≥2 fuentes críticas correlacionadas (elimina falsos positivos). 3 estados: verde/amarillo/rojo.
 
+**Diseño de integración de los sensores (Fase 3, no implementado):** README §10. Resumen: control de calidad en el gateway (rango, saltos, valor congelado, nodo caído); variables nuevas `P_local_*`, `h_rel`, `dh_*`, `turb_rel`; rojo confirmado = ≥2 señales de fuentes distintas en 30 min, al menos una en el cauce, con histéresis y modo degradado (sin nodos válidos → escala actual); dos modelos (`M_lluvia` 6 h, el actual, y `M_campo` 1–2 h); CN calibrado con `CN = 25400 / (254 + 5·Ia_obs)`; validación por evento. Evidencia de lluvia local: `simulate/12_variabilidad_lluvia.py` (en días con lluvia en ambas estaciones, solo una supera 11.8 mm en el 56 % de los días de Pajarito–Olaya y en el 75 % de Metromedellín–Olaya).
+
 ## Componente IA/ML (decisión de diseño — actualizada Fase 2)
 
 - **Pivote de regresión a clasificación:** se probaron 3 enfoques de `RandomForestRegressor` — ninguno superó el baseline de persistencia simple en el subset de eventos reales. Causa: ~8 % de horas con escorrentía >0 en el dataset (366 en el test de 7,753 filas, 4.7 %); el RF promedia hacia la media y diluye la cola. Decisión: pivote a `RandomForestClassifier`.
@@ -165,6 +167,7 @@ CentineLA/
     09_gateway_simulado.py       # gateway streaming con validación batch vs stream (sale con código 1 si falla)
     10_metricas_ternario.py      # recall/precisión de los umbrales 0.30/0.70 (fuente de las métricas del dashboard)
     11_actualizar_ahora.py       # actualización en vivo desde IDEAM: 04 → 06 → 09 + copia SQLite centinela.db
+    12_variabilidad_lluvia.py    # diferencias de lluvia entre estaciones IDEAM (argumento del pluviómetro local)
     reglas_alerta.py             # umbrales 0.30/0.70 + regla de lluvia seca (única fuente para dashboard, 09 y 10)
     models/                      # trackeado: clf_6h.joblib; rf_6h*.joblib y clf_6h_baseline_*.joblib ignorados
   dashboard/
